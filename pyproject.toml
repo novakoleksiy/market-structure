@@ -10,3 +10,11 @@ dependencies = [
     "matplotlib>=3.8",
     "ruff>=0.15.2",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
