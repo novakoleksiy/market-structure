@@ -1,14 +1,16 @@
-"""Market structure engine — Python port of ms_alerts.pine."""
+"""Market structure engine"""
 
 from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
+from scipy.signal import argrelmax, argrelmin
 
 
 # ---------------------------------------------------------------------------
 # Pivot detection
 # ---------------------------------------------------------------------------
+
 
 def detect_pivots(
     highs: np.ndarray,
@@ -19,22 +21,18 @@ def detect_pivots(
 
     A pivot high at bar *i* is confirmed ``pivot_length`` bars later (bar
     i + pivot_length).  The returned arrays place the value at the
-    **confirmation** bar, matching Pine's ``ta.pivothigh/low`` which reports
-    on the bar where the pivot becomes visible.
+    **confirmation** bar
     """
     n = len(highs)
     ph = np.full(n, np.nan)
     pl = np.full(n, np.nan)
 
-    for i in range(pivot_length, n - pivot_length):
-        # Check if highs[i] is the highest in the window
-        window_h = highs[i - pivot_length : i + pivot_length + 1]
-        if highs[i] == np.max(window_h) and np.sum(window_h == highs[i]) == 1:
-            # Place at confirmation bar (i + pivot_length)
+    for i in argrelmax(highs, order=pivot_length)[0]:
+        if i + pivot_length < n:
             ph[i + pivot_length] = highs[i]
 
-        window_l = lows[i - pivot_length : i + pivot_length + 1]
-        if lows[i] == np.min(window_l) and np.sum(window_l == lows[i]) == 1:
+    for i in argrelmin(lows, order=pivot_length)[0]:
+        if i + pivot_length < n:
             pl[i + pivot_length] = lows[i]
 
     return ph, pl
@@ -43,6 +41,7 @@ def detect_pivots(
 # ---------------------------------------------------------------------------
 # Market-structure state machine (single-bar step)
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class MarketStructureState:
@@ -115,6 +114,7 @@ def compute_market_structure(
 # Multi-timeframe helper
 # ---------------------------------------------------------------------------
 
+
 def resample_ohlc(df: pd.DataFrame, rule: str) -> pd.DataFrame:
     """Resample a DatetimeIndex OHLC DataFrame to a higher timeframe."""
     return (
@@ -149,6 +149,7 @@ def get_mtf_trend(
 # ---------------------------------------------------------------------------
 # Cluster signal state machine
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class ClusterState:
