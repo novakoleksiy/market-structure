@@ -46,8 +46,8 @@ def detect_pivots(
 @dataclass
 class MarketStructureState:
     trend: int = 0
-    str_point_hl: float = field(default=float("nan"))
-    str_point_lh: float = field(default=float("nan"))
+    support: float = field(default=float("nan"))
+    resistance: float = field(default=float("nan"))
     last_ph: float = field(default=float("nan"))
     last_pl: float = field(default=float("nan"))
 
@@ -71,26 +71,26 @@ def update_market_structure(
         st.last_pl = pivot_low
 
     if st.trend == 1:
-        if close < st.str_point_hl:
+        if close < st.support:
             st.trend = -1
-            st.str_point_lh = st.last_ph
-            st.str_point_hl = float("nan")
-        elif signal_pl and (np.isnan(st.str_point_hl) or pivot_low > st.str_point_hl):
-            st.str_point_hl = pivot_low
+            st.resistance = st.last_ph
+            st.support = float("nan")
+        elif signal_pl and (np.isnan(st.support) or pivot_low > st.support):
+            st.support = pivot_low
     elif st.trend == -1:
-        if close > st.str_point_lh:
+        if close > st.resistance:
             st.trend = 1
-            st.str_point_hl = st.last_pl
-            st.str_point_lh = float("nan")
-        elif signal_ph and (np.isnan(st.str_point_lh) or pivot_high < st.str_point_lh):
-            st.str_point_lh = pivot_high
+            st.support = st.last_pl
+            st.resistance = float("nan")
+        elif signal_ph and (np.isnan(st.resistance) or pivot_high < st.resistance):
+            st.resistance = pivot_high
     else:
         if signal_pl:
             st.trend = 1
-            st.str_point_hl = pivot_low
+            st.support = pivot_low
         elif signal_ph:
             st.trend = -1
-            st.str_point_lh = pivot_high
+            st.resistance = pivot_high
 
 
 def compute_market_structure(
