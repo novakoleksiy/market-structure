@@ -6,7 +6,6 @@ import numpy as np
 import pandas as pd
 from scipy.signal import argrelmax, argrelmin
 
-
 # ---------------------------------------------------------------------------
 # Pivot detection
 # ---------------------------------------------------------------------------
@@ -119,7 +118,7 @@ def resample_ohlc(df: pd.DataFrame, rule: str) -> pd.DataFrame:
     """Resample a DatetimeIndex OHLC DataFrame to a higher timeframe."""
     return (
         df.resample(rule)
-        .agg({"open": "first", "high": "max", "low": "min", "close": "last"})
+        .agg({"Open": "first", "High": "max", "Low": "min", "Close": "last"})
         .dropna()
     )
 
