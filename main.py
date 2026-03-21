@@ -12,9 +12,6 @@ _CLUSTER_2 = {"low": "30min", "med": "4h", "high": "1D"}
 _CLUSTER_3 = {"low": "4h", "med": "1D", "high": "1W"}
 CLUSTER = _CLUSTER_3
 
-h4 = fetch_klines("BTCUSDT", CLUSTER["low"], limit=1000, market="futures-usdt")
-d1 = resample_ohlc(h4, CLUSTER["med"])
-
 
 def main() -> None:
     df = fetch_klines("BTCUSDT", CLUSTER["low"], limit=1000, market="futures-usdt")
