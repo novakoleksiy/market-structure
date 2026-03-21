@@ -118,7 +118,7 @@ def resample_ohlc(df: pd.DataFrame, rule: str) -> pd.DataFrame:
     """Resample a DatetimeIndex OHLC DataFrame to a higher timeframe."""
     return (
         df.resample(rule)
-        .agg({"Open": "first", "High": "max", "Low": "min", "Close": "last"})
+        .agg({"open": "first", "high": "max", "low": "min", "close": "last"})
         .dropna()
     )
 
