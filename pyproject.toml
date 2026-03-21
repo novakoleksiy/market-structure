@@ -20,6 +20,7 @@ dev = [
     "lightweight-charts>=2.1",
     "plotly>=6.5.2",
     "pytest>=9.0.2",
+    "pytest-cov>=7.0.0",
     "yfinance>=1.2.0",
 ]
 
