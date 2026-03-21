@@ -8,9 +8,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Run main engine (loads btcusd.pkl, computes multi-timeframe trends and cluster signals)
 uv run main.py
 
-# Run interactive Plotly visualization of market structure
-uv run test.py
-
 # Run tests
 uv run pytest
 
