@@ -17,16 +17,13 @@ def run_cluster(
     symbol: str = "BTCUSDT",
     market: str = "futures-usdt",
     cluster: dict | None = None,
-    limit: int = 1000,
-    warmup: int = WARMUP_BARS,
     pivot_length: int = PIVOT_LENGTH,
 ):
     """Fetch data, compute trends with warm-up buffer, return trimmed results."""
     cluster = cluster or CLUSTER
 
     # 1. Fetch each timeframe with extra warm-up bars
-    # total = limit + warmup
-    df = fetch_klines_full(symbol, cluster["low"], n_bars=limit, market=market)
+    df = fetch_klines_full(symbol, cluster["low"], n_bars=5000, market=market)
     df_m = fetch_klines_full(symbol, cluster["med"], n_bars=5000, market=market)
     df_h = fetch_klines_full(symbol, cluster["high"], n_bars=5000, market=market)
 
@@ -34,12 +31,6 @@ def run_cluster(
     trend_l = get_mtf_trend(df, cluster["low"], pivot_length, higher_tf_df=df)
     trend_m = get_mtf_trend(df, cluster["med"], pivot_length, higher_tf_df=df_m)
     trend_h = get_mtf_trend(df, cluster["high"], pivot_length, higher_tf_df=df_h)
-
-    # 3. Trim to the last `limit` bars of the base timeframe
-    # df = df.iloc[-limit:]
-    # trend_l = trend_l.iloc[-limit:]
-    # trend_m = trend_m.iloc[-limit:]
-    # trend_h = trend_h.iloc[-limit:]
 
     # 4. Compute cluster signals on the trimmed window
     longs, shorts = compute_cluster_signals(
@@ -49,12 +40,6 @@ def run_cluster(
 
 
 if __name__ == "__main__":
-    df1, longs1, shorts1 = run_cluster(cluster=_CLUSTER_3, limit=500)
-    df2, longs2, shorts2 = run_cluster(cluster=_CLUSTER_3, limit=1000)
-    df3, longs3, shorts3 = run_cluster(cluster=_CLUSTER_3, limit=1500)
-    fig1 = plot_market_structure(df1, longs=longs1, shorts=shorts1)
-    fig2 = plot_market_structure(df2, longs=longs2, shorts=shorts2)
-    fig3 = plot_market_structure(df3, longs=longs3, shorts=shorts3)
-    fig1.show()
-    fig2.show()
-    fig3.show()
+    df, longs, shorts = run_cluster()
+    fig = plot_market_structure(df, longs=longs, shorts=shorts)
+    fig.show()
