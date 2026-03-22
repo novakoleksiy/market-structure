@@ -2,7 +2,7 @@
 
 ## Overview
 
-64 tests covering `ms_engine.py` (100%) and `binance_data.py` (95% — only `__main__` block excluded).
+71 tests covering `ms_engine.py` (100%), `binance_data.py` (95% — only `__main__` block excluded), plus repainting and determinism tests.
 
 Run tests: `uv run pytest tests/ --cov=ms_engine --cov=binance_data --cov-report=term-missing`
 
@@ -142,3 +142,24 @@ Run tests: `uv run pytest tests/ --cov=ms_engine --cov=binance_data --cov-report
 | `test_fetch_klines_full_pagination` | Multiple pages are fetched and concatenated when first chunk fills limit |
 | `test_fetch_klines_full_empty` | Empty first response returns empty DataFrame |
 | `test_fetch_klines_full_partial_page_stops` | Partial page (fewer bars than limit) stops pagination after one call |
+
+---
+
+## test_repainting.py
+
+Tests that validate the repainting behavior of `compute_market_structure` when history length changes, and that a warm-up buffer eliminates divergence.
+
+| Test | Description |
+|------|-------------|
+| `test_trend_changes_with_history_length` (parametrized: pivot_length=2,3,5) | Demonstrates that trend values on the tail differ when computed on full vs truncated history (repainting) |
+| `test_trend_stable_with_warmup` (parametrized: pivot_length=2,3,5) | With a 200-bar warm-up buffer, trend values on the output window are identical regardless of total history length |
+
+---
+
+## test_determinism.py
+
+Network test that verifies cluster signals are deterministic across different data fetch sizes.
+
+| Test | Description |
+|------|-------------|
+| `test_signals_deterministic_across_limits` | Fetches live Binance data with limit=1000 and limit=1500, asserts that signals on overlapping bars are identical (marked `@pytest.mark.network`) |

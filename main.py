@@ -10,7 +10,7 @@ WARMUP_BARS = 500
 _CLUSTER_1 = {"low": "5min", "med": "30min", "high": "4h"}
 _CLUSTER_2 = {"low": "30min", "med": "4h", "high": "1D"}
 _CLUSTER_3 = {"low": "4h", "med": "1D", "high": "1W"}
-CLUSTER = _CLUSTER_3
+CLUSTER = _CLUSTER_1
 
 
 def run_cluster(

@@ -19,23 +19,24 @@ Use `uv` for package management (lockfile: `uv.lock`). Python 3.12 required.
 
 ## Architecture
 
-All core logic lives in `ms_engine.py`. `main.py` is the entry point that wires it together.
+All core logic lives in `ms_engine.py`. `main.py` is the entry point that wires it together. `binance_data.py` handles data fetching from Binance. `chart.py` renders candlestick charts with market-structure overlays via Plotly.
 
 ### Data flow
 
 ```
-OHLC DataFrame (btcusd.pkl or mock_data.py)
-    → detect_pivots()          # scipy argrelmax/argrelmin, confirmed N bars later
+Binance API (binance_data.py)
+    → detect_pivots()          # manual window scan, confirmed N bars later
     → compute_market_structure()  # state machine over pivot arrays → trend array
-    → get_mtf_trend()          # resample to higher TF, forward-fill back to base index
+    → get_mtf_trend()          # forward-fill higher-TF trend to base index
     → compute_cluster_signals()   # 3-TF confluence → long/short boolean arrays
+    → plot_market_structure()  # chart.py: candlestick chart with trend coloring + signals
 ```
 
 ### Key abstractions
 
-- **`detect_pivots(high, low, pivot_length)`** — finds pivot highs/lows with `pivot_length`-bar confirmation delay.
+- **`detect_pivots(high, low, pivot_length)`** — finds pivot highs/lows with `pivot_length`-bar confirmation delay using a manual window scan (no scipy dependency).
 - **`MarketStructureState` / `update_market_structure()`** — bar-by-bar state machine tracking trend (1/−1/0), support, resistance, and last pivot. Trend flips when price breaks support/resistance levels.
-- **`get_mtf_trend(df, base_tf, higher_tf)`** — resamples OHLC to a higher timeframe, computes structure, and forward-fills the trend to the base index (no lookahead, mirrors TradingView `request.security()`).
+- **`get_mtf_trend(df, rule, pivot_length, higher_tf_df=None)`** — computes trend on a higher timeframe and forward-fills to base index (no lookahead). Accepts pre-fetched higher-TF data via `higher_tf_df` to avoid resampling artefacts.
 - **`ClusterState` / `compute_cluster_signals()`** — three-timeframe confluence detector. Long: high=up → med dips → recovers → dips → low dips → recovers = signal. Short is the mirror. Fires once per setup, resets on trend break.
 
 ### Timeframe convention
