@@ -4,8 +4,6 @@ from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
-from scipy.signal import argrelmax, argrelmin
-
 # ---------------------------------------------------------------------------
 # Pivot detection
 # ---------------------------------------------------------------------------
@@ -20,19 +18,27 @@ def detect_pivots(
 
     A pivot high at bar *i* is confirmed ``pivot_length`` bars later (bar
     i + pivot_length).  The returned arrays place the value at the
-    **confirmation** bar
+    **confirmation** bar.
+
+    Bars within ``pivot_length`` of the array start are skipped — they lack
+    enough left context for a reliable comparison.  This avoids the edge-
+    clipping artefacts of ``scipy.signal.argrelmax`` that cause trend values
+    to change when the history length changes.
     """
     n = len(highs)
+    L = pivot_length
     ph = np.full(n, np.nan)
     pl = np.full(n, np.nan)
 
-    for i in argrelmax(highs, order=pivot_length)[0]:
-        if i + pivot_length < n:
-            ph[i + pivot_length] = highs[i]
+    # Only consider candidates with L bars on each side.
+    for i in range(L, n - L):
+        window_h = highs[i - L : i + L + 1]
+        if highs[i] == window_h.max() and np.sum(window_h == highs[i]) == 1:
+            ph[i + L] = highs[i]
 
-    for i in argrelmin(lows, order=pivot_length)[0]:
-        if i + pivot_length < n:
-            pl[i + pivot_length] = lows[i]
+        window_l = lows[i - L : i + L + 1]
+        if lows[i] == window_l.min() and np.sum(window_l == lows[i]) == 1:
+            pl[i + L] = lows[i]
 
     return ph, pl
 
