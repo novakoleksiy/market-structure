@@ -42,7 +42,7 @@ def fetch_klines(
     limit: int = 1000,
     start_time: datetime | None = None,
     end_time: datetime | None = None,
-    market: str = "spot",
+    market: str = "futures-usdt",
     closed_only: bool = True,
 ) -> pd.DataFrame:
     """Fetch klines from Binance and return an OHLCV DataFrame.
@@ -55,7 +55,7 @@ def fetch_klines(
     interval:
         Timeframe in pandas notation (``"5min"``, ``"1h"``, ``"4h"``…).
     limit:
-        Number of bars to fetch (max 1000 per request).
+        Number of bars to fetch (max 1500 per request).
     start_time:
         Fetch bars starting from this UTC datetime (inclusive).
     end_time:
@@ -151,25 +151,31 @@ def fetch_klines_full(
     interval:
         Timeframe in pandas notation.
     n_bars:
-        Total number of bars to retrieve (rounded up to nearest 1000).
+        Total number of bars to retrieve.
     market:
         ``"spot"``, ``"futures-usdt"``, or ``"futures-coin"``.
     closed_only:
         If ``True`` (default), drop the current still-open bar from the result.
     """
+    # Binance rate-limit weight doubles at limit>=500 (2→5) and again at
+    # >=1000 (5→10).  Fetching 499 per request (weight 2) uses ~45% less
+    # weight budget than 1500 (weight 10) for the same total bars.
+    _CHUNK = 499
     chunks: list[pd.DataFrame] = []
     end_time: datetime | None = None
     remaining = n_bars
 
     while remaining > 0:
-        limit = min(remaining, 1000)
+        limit = min(remaining, _CHUNK)
+        # Always fetch all bars (including open) during pagination to avoid
+        # closed_only dropping a bar and falsely triggering the early-exit check.
         chunk = fetch_klines(
             symbol,
             interval,
             limit=limit,
             end_time=end_time,
             market=market,
-            closed_only=closed_only,
+            closed_only=False,
         )
         if chunk.empty:
             break
@@ -184,7 +190,17 @@ def fetch_klines_full(
     if not chunks:
         return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
 
-    return pd.concat(reversed(chunks)).sort_index().drop_duplicates()
+    result = pd.concat(reversed(chunks)).sort_index().drop_duplicates()
+    if closed_only:
+        now = datetime.now(tz=timezone.utc)
+        # The last bar may still be open — its close_time hasn't passed.
+        # We don't have close_time here, so drop the very last bar if its
+        # expected close (open_time + interval) is in the future.
+        last_open = result.index[-1]
+        expected_close = last_open + pd.tseries.frequencies.to_offset(interval)
+        if expected_close > now:
+            result = result.iloc[:-1]
+    return result
 
 
 if __name__ == "__main__":
