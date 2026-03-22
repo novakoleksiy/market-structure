@@ -155,15 +155,15 @@ def test_fetch_klines_full_pagination(mock_fk):
             index=idx,
         )
 
-    # n_bars=2000 → first call limit=1000, returns 1000 (triggers pagination),
-    # second call returns 500 (< 1000, stops)
+    # n_bars=2000 → first call limit=1500, returns 1500 (triggers pagination),
+    # second call returns 500 (< 500, stops)
     mock_fk.side_effect = [
-        make_chunk("2024-01-01 12:00", 1000, 200),
-        make_chunk("2024-01-01 00:00", 500, 100),
+        make_chunk("2024-01-02 01:00", 1500, 200),
+        make_chunk("2024-01-01 00:00", 300, 100),
     ]
     result = fetch_klines_full("BTCUSDT", "5min", n_bars=2000)
     assert mock_fk.call_count == 2
-    assert len(result) == 1500
+    assert len(result) == 1800
 
 
 @patch("binance_data.fetch_klines")
@@ -177,10 +177,11 @@ def test_fetch_klines_full_empty(mock_fk):
 
 @patch("binance_data.fetch_klines")
 def test_fetch_klines_full_partial_page_stops(mock_fk):
-    idx = pd.date_range("2024-01-01", periods=500, freq="5min", tz="UTC")
+    """When a chunk returns fewer rows than requested, pagination stops."""
+    idx = pd.date_range("2024-01-01", periods=200, freq="5min", tz="UTC")
     mock_fk.return_value = pd.DataFrame(
         {"open": 100, "high": 105, "low": 95, "close": 102, "volume": 10},
         index=idx,
     )
-    fetch_klines_full("BTCUSDT", "5min", n_bars=1000)
+    fetch_klines_full("BTCUSDT", "5min", n_bars=499)
     assert mock_fk.call_count == 1

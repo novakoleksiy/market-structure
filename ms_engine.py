@@ -4,7 +4,6 @@ from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
-from scipy.signal import argrelmax, argrelmin
 
 # ---------------------------------------------------------------------------
 # Pivot detection
@@ -20,19 +19,27 @@ def detect_pivots(
 
     A pivot high at bar *i* is confirmed ``pivot_length`` bars later (bar
     i + pivot_length).  The returned arrays place the value at the
-    **confirmation** bar
+    **confirmation** bar.
+
+    Bars within ``pivot_length`` of the array start are skipped — they lack
+    enough left context for a reliable comparison.  This avoids the edge-
+    clipping artefacts of ``scipy.signal.argrelmax`` that cause trend values
+    to change when the history length changes.
     """
     n = len(highs)
+    L = pivot_length
     ph = np.full(n, np.nan)
     pl = np.full(n, np.nan)
 
-    for i in argrelmax(highs, order=pivot_length)[0]:
-        if i + pivot_length < n:
-            ph[i + pivot_length] = highs[i]
+    # Only consider candidates with L bars on each side.
+    for i in range(L, n - L):
+        window_h = highs[i - L : i + L + 1]
+        if highs[i] == window_h.max() and np.sum(window_h == highs[i]) == 1:
+            ph[i + L] = highs[i]
 
-    for i in argrelmin(lows, order=pivot_length)[0]:
-        if i + pivot_length < n:
-            pl[i + pivot_length] = lows[i]
+        window_l = lows[i - L : i + L + 1]
+        if lows[i] == window_l.min() and np.sum(window_l == lows[i]) == 1:
+            pl[i + L] = lows[i]
 
     return ph, pl
 
@@ -116,30 +123,36 @@ def compute_market_structure(
 
 def resample_ohlc(df: pd.DataFrame, rule: str) -> pd.DataFrame:
     """Resample a DatetimeIndex OHLC DataFrame to a higher timeframe."""
-    return (
+    result = (
         df.resample(rule)
         .agg({"open": "first", "high": "max", "low": "min", "close": "last"})
         .dropna()
     )
+    result.attrs = {**df.attrs, "timeframe": rule}
+    return result
 
 
 def get_mtf_trend(
     df: pd.DataFrame,
     rule: str,
     pivot_length: int = 2,
+    higher_tf_df: pd.DataFrame | None = None,
 ) -> pd.Series:
-    """Compute market-structure trend on a resampled timeframe and
+    """Compute market-structure trend on a higher timeframe and
     forward-fill it back onto the base index (mimics ``request.security``
     with ``gaps_off, lookahead_off``).
+
+    If *higher_tf_df* is provided it is used directly (real exchange
+    candles); otherwise the base *df* is resampled to *rule*.
     """
-    resampled = resample_ohlc(df, rule)
+    htf = higher_tf_df if higher_tf_df is not None else resample_ohlc(df, rule)
     trend_vals = compute_market_structure(
-        resampled["high"].values,
-        resampled["low"].values,
-        resampled["close"].values,
+        htf["high"].values,
+        htf["low"].values,
+        htf["close"].values,
         pivot_length,
     )
-    trend_sr = pd.Series(trend_vals, index=resampled.index, name="trend")
+    trend_sr = pd.Series(trend_vals, index=htf.index, name="trend")
     # Reindex onto the base df, forward-fill (no lookahead)
     trend_sr = trend_sr.reindex(df.index, method="ffill").fillna(0).astype(int)
     return trend_sr
