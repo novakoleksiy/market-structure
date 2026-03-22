@@ -129,19 +129,23 @@ def get_mtf_trend(
     df: pd.DataFrame,
     rule: str,
     pivot_length: int = 2,
+    higher_tf_df: pd.DataFrame | None = None,
 ) -> pd.Series:
-    """Compute market-structure trend on a resampled timeframe and
+    """Compute market-structure trend on a higher timeframe and
     forward-fill it back onto the base index (mimics ``request.security``
     with ``gaps_off, lookahead_off``).
+
+    If *higher_tf_df* is provided it is used directly (real exchange
+    candles); otherwise the base *df* is resampled to *rule*.
     """
-    resampled = resample_ohlc(df, rule)
+    htf = higher_tf_df if higher_tf_df is not None else resample_ohlc(df, rule)
     trend_vals = compute_market_structure(
-        resampled["high"].values,
-        resampled["low"].values,
-        resampled["close"].values,
+        htf["high"].values,
+        htf["low"].values,
+        htf["close"].values,
         pivot_length,
     )
-    trend_sr = pd.Series(trend_vals, index=resampled.index, name="trend")
+    trend_sr = pd.Series(trend_vals, index=htf.index, name="trend")
     # Reindex onto the base df, forward-fill (no lookahead)
     trend_sr = trend_sr.reindex(df.index, method="ffill").fillna(0).astype(int)
     return trend_sr
