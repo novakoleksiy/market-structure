@@ -64,8 +64,8 @@ def plot_market_structure(
             )
         )
 
-    # Pivot markers
-    offset = closes.mean() * 0.01
+    # Pivot markers – offset scales with actual candle size, not price level
+    offset = np.nanmean(highs - lows) * 0.5
     ph_idx = np.where(~np.isnan(ph))[0]
     pl_idx = np.where(~np.isnan(pl))[0]
     ph_actual = ph_idx - pivot_length
