@@ -114,7 +114,11 @@ def plot_market_structure(
             )
         )
 
+    symbol = df.attrs.get("symbol")
+    timeframe = df.attrs.get("timeframe")
+    title_parts = [p for p in (symbol, timeframe) if p]
     fig.update_layout(
+        title=dict(text=" · ".join(title_parts)) if title_parts else None,
         xaxis_rangeslider_visible=False,
         template="plotly_dark",
         yaxis=dict(autorange=True, fixedrange=False),

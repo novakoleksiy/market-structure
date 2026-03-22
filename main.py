@@ -3,6 +3,7 @@
 import pandas as pd
 
 from binance_data import fetch_klines
+from chart import plot_market_structure
 from ms_engine import compute_cluster_signals, get_mtf_trend, resample_ohlc
 
 # -- Config -----------------------------------------------------------------

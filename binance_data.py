@@ -129,7 +129,10 @@ def fetch_klines(
         now = datetime.now(tz=timezone.utc)
         df = df[df["close_time"] < now]
 
-    return df.drop(columns="close_time")
+    result = df.drop(columns="close_time")
+    result.attrs["symbol"] = symbol
+    result.attrs["timeframe"] = interval
+    return result
 
 
 def fetch_klines_full(

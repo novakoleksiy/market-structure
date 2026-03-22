@@ -116,11 +116,13 @@ def compute_market_structure(
 
 def resample_ohlc(df: pd.DataFrame, rule: str) -> pd.DataFrame:
     """Resample a DatetimeIndex OHLC DataFrame to a higher timeframe."""
-    return (
+    result = (
         df.resample(rule)
         .agg({"open": "first", "high": "max", "low": "min", "close": "last"})
         .dropna()
     )
+    result.attrs = {**df.attrs, "timeframe": rule}
+    return result
 
 
 def get_mtf_trend(
