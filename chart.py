@@ -99,7 +99,7 @@ def plot_market_structure(
                 y=lows[idx] - offset * 2,
                 mode="markers",
                 name="Long Signal",
-                marker=dict(symbol="arrow-up", color="#00e676", size=12),
+                marker=dict(symbol="diamond", color="#00e676", size=10),
             )
         )
     if shorts is not None and shorts.any():
@@ -110,7 +110,7 @@ def plot_market_structure(
                 y=highs[idx] + offset * 2,
                 mode="markers",
                 name="Short Signal",
-                marker=dict(symbol="arrow-down", color="#ff1744", size=12),
+                marker=dict(symbol="diamond", color="#ff1744", size=10),
             )
         )
 

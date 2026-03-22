@@ -18,14 +18,15 @@ def run_cluster(
     market: str = "futures-usdt",
     cluster: dict | None = None,
     pivot_length: int = PIVOT_LENGTH,
+    show_length: int = 500,
 ):
     """Fetch data, compute trends with warm-up buffer, return trimmed results."""
     cluster = cluster or CLUSTER
 
     # 1. Fetch each timeframe with extra warm-up bars
-    df = fetch_klines_full(symbol, cluster["low"], n_bars=5000, market=market)
-    df_m = fetch_klines_full(symbol, cluster["med"], n_bars=5000, market=market)
-    df_h = fetch_klines_full(symbol, cluster["high"], n_bars=5000, market=market)
+    df = fetch_klines_full(symbol, cluster["low"], n_bars=2000, market=market)
+    df_m = fetch_klines_full(symbol, cluster["med"], n_bars=2000, market=market)
+    df_h = fetch_klines_full(symbol, cluster["high"], n_bars=2000, market=market)
 
     # 2. Compute trends on full history (including warm-up)
     trend_l = get_mtf_trend(df, cluster["low"], pivot_length, higher_tf_df=df)
@@ -36,10 +37,10 @@ def run_cluster(
     longs, shorts = compute_cluster_signals(
         trend_h.values, trend_m.values, trend_l.values
     )
-    return df, longs, shorts
+    return df[-show_length:], longs[-show_length:], shorts[-show_length:]
 
 
 if __name__ == "__main__":
-    df, longs, shorts = run_cluster()
+    df, longs, shorts = run_cluster(show_length=500)
     fig = plot_market_structure(df, longs=longs, shorts=shorts)
     fig.show()
