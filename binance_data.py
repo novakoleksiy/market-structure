@@ -2,6 +2,7 @@
 
 import json
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 import pandas as pd
@@ -201,6 +202,50 @@ def fetch_klines_full(
         if expected_close > now:
             result = result.iloc[:-1]
     return result
+
+
+def fetch_multi(
+    tasks: list[tuple[str, str]],
+    n_bars: int = 2000,
+    market: str = "futures-usdt",
+    max_workers: int = 6,
+    closed_only: bool = True,
+) -> dict[tuple[str, str], pd.DataFrame]:
+    """Fetch klines for multiple (symbol, interval) pairs in parallel.
+
+    Parameters
+    ----------
+    tasks:
+        List of ``(symbol, interval)`` tuples, e.g.
+        ``[("BTCUSDT", "5min"), ("ETHUSDT", "4h")]``.
+    n_bars:
+        Number of bars to fetch per task.
+    market:
+        ``"spot"``, ``"futures-usdt"``, or ``"futures-coin"``.
+    max_workers:
+        Maximum concurrent requests (default 6, conservative vs Binance
+        1200 weight/min limit).
+    closed_only:
+        If ``True`` (default), drop still-open bars.
+
+    Returns
+    -------
+    dict[tuple[str, str], pd.DataFrame]
+        Keyed by ``(symbol, interval)``.
+    """
+
+    def _fetch(task: tuple[str, str]) -> tuple[tuple[str, str], pd.DataFrame]:
+        symbol, interval = task
+        df = fetch_klines_full(
+            symbol, interval, n_bars=n_bars, market=market, closed_only=closed_only
+        )
+        return task, df
+
+    results: dict[tuple[str, str], pd.DataFrame] = {}
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        for key, df in pool.map(_fetch, tasks):
+            results[key] = df
+    return results
 
 
 if __name__ == "__main__":

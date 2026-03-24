@@ -7,7 +7,12 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from binance_data import _to_binance_interval, fetch_klines, fetch_klines_full
+from binance_data import (
+    _to_binance_interval,
+    fetch_klines,
+    fetch_klines_full,
+    fetch_multi,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -185,3 +190,26 @@ def test_fetch_klines_full_partial_page_stops(mock_fk):
     )
     fetch_klines_full("BTCUSDT", "5min", n_bars=499)
     assert mock_fk.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# fetch_multi
+# ---------------------------------------------------------------------------
+
+
+@patch("binance_data.fetch_klines_full")
+def test_fetch_multi_returns_keyed_dict(mock_fkf):
+    """fetch_multi returns dict keyed by (symbol, interval) with correct data."""
+    idx = pd.date_range("2024-01-01", periods=10, freq="5min", tz="UTC")
+    dummy = pd.DataFrame(
+        {"open": 100, "high": 105, "low": 95, "close": 102, "volume": 10},
+        index=idx,
+    )
+    mock_fkf.return_value = dummy
+
+    tasks = [("BTCUSDT", "5min"), ("ETHUSDT", "4h")]
+    result = fetch_multi(tasks, n_bars=100, market="futures-usdt", max_workers=2)
+
+    assert set(result.keys()) == {("BTCUSDT", "5min"), ("ETHUSDT", "4h")}
+    assert len(result[("BTCUSDT", "5min")]) == 10
+    assert mock_fkf.call_count == 2
