@@ -360,6 +360,135 @@ def test_cluster_signal_not_premature_with_lookahead_fix():
     )
 
 
+def test_medium_dip_recovery_during_unclosed_htf_bar_not_tracked():
+    """Medium dip/recovery during an unclosed t_h bar must not count as setup.
+
+    shift(1) delays each TF by one bar of its OWN frequency: 12 base bars
+    for 1h, 6 for 30min, 1 for 5min.  This differential delay is the key.
+
+    Raw trends (before shift):
+      High (1h):  [-1, 1, 1, 1]   → without shift t_h=1 at bar 12
+                                     with shift    t_h=1 at bar 24
+      Med (30min): [1, 1, -1, 1, …] → without shift t_m=-1 at bars 12–17
+                                       with shift    t_m=-1 at bars 18–23
+      Low (5min):  1×29, -1×4, 1×15 → low dip at bars 30–33 (with shift)
+
+    Without shift: t_h=1 at bar 12, t_m=-1 at bars 12–17 → mDip; t_m=1 at
+    bar 18 → mRec; lDip at bar 29, signal at bar 33.
+    With shift: t_h=-1 until bar 24.  Medium dip (bars 18–23) falls while
+    t_h=-1 → reset clears it.  After bar 24 t_m=1 with no new dip → no mDip
+    → no signal.
+    """
+    n = 48
+    base_rows = [(100, 105, 95, 102)] * n
+    df = _ohlc_df(base_rows, freq="5min")
+
+    htf = _ohlc_df([(100, 105, 95, 102)] * 4, freq="1h")
+    med = _ohlc_df([(100, 105, 95, 102)] * 8, freq="30min")
+
+    htf_trends = np.array([-1, 1, 1, 1])
+    med_trends = np.array([1, 1, -1, 1, 1, 1, 1, 1])
+    low_trends = np.array([1] * 29 + [-1] * 4 + [1] * 15)
+
+    with patch("ms_engine.compute_market_structure") as mock_cms:
+        mock_cms.side_effect = [low_trends, med_trends, htf_trends]
+        trend_l = get_mtf_trend(df, "5min", 2, higher_tf_df=df)
+        trend_m = get_mtf_trend(df, "30min", 2, higher_tf_df=med)
+        trend_h = get_mtf_trend(df, "1h", 2, higher_tf_df=htf)
+
+    longs, _ = compute_cluster_signals(
+        trend_h.values, trend_m.values, trend_l.values
+    )
+
+    assert not longs.any(), (
+        f"No long signal should fire — medium dip/recovery happened before "
+        f"t_h was confirmed, got signals at {np.where(longs)[0]}"
+    )
+
+
+def test_full_setup_during_unclosed_htf_bar_not_tracked():
+    """Entire long setup (mDip, mRec, lDip, recovery) completes during the
+    period where t_h has flipped in raw data but shift(1) hasn't confirmed it.
+
+    Raw trends (before shift):
+      High (1h):   [-1, 1, 1, 1]    → without shift t_h=1 at bar 12
+                                       with shift    t_h=1 at bar 24
+      Med (30min): [1, 1, -1, 1, …]  → without shift dip bars 12–17, rec 18+
+                                        with shift    dip bars 18–23, rec 24+
+      Low (5min):  1×20, -1×3, 1×25  → without shift dip bars 20–22, rec at 23
+                                        with shift    dip bars 21–23, rec at 24
+
+    Without shift: full setup completes → signal at bar 23.
+    With shift: medium dip at bars 18–23 while t_h=-1 → reset.
+    After bar 24: t_h=1, t_m=1, no mDip → no signal.
+    """
+    n = 48
+    base_rows = [(100, 105, 95, 102)] * n
+    df = _ohlc_df(base_rows, freq="5min")
+
+    htf = _ohlc_df([(100, 105, 95, 102)] * 4, freq="1h")
+    med = _ohlc_df([(100, 105, 95, 102)] * 8, freq="30min")
+
+    htf_trends = np.array([-1, 1, 1, 1])
+    med_trends = np.array([1, 1, -1, 1, 1, 1, 1, 1])
+    low_trends = np.array([1] * 20 + [-1] * 3 + [1] * 25)
+
+    with patch("ms_engine.compute_market_structure") as mock_cms:
+        mock_cms.side_effect = [low_trends, med_trends, htf_trends]
+        trend_l = get_mtf_trend(df, "5min", 2, higher_tf_df=df)
+        trend_m = get_mtf_trend(df, "30min", 2, higher_tf_df=med)
+        trend_h = get_mtf_trend(df, "1h", 2, higher_tf_df=htf)
+
+    longs, _ = compute_cluster_signals(
+        trend_h.values, trend_m.values, trend_l.values
+    )
+
+    assert not longs.any(), (
+        f"No long signal should fire — full setup completed before t_h "
+        f"confirmed, got signals at {np.where(longs)[0]}"
+    )
+
+
+def test_short_setup_during_unclosed_htf_bar_not_tracked():
+    """Mirror of long test: short setup during unclosed t_h bar (1→-1 flip).
+
+    Raw trends (before shift):
+      High (1h):   [1, -1, -1, -1]   → without shift t_h=-1 at bar 12
+                                        with shift    t_h=-1 at bar 24
+      Med (30min): [-1, -1, 1, -1, …] → without shift dip_s bars 12–17
+                                         with shift    dip_s bars 18–23
+      Low (5min):  -1×20, 1×3, -1×25  → without shift dip_s bars 20–22
+
+    Without shift: full short setup → signal at bar 23.
+    With shift: medium dip_s at bars 18–23 while t_h=1 → reset. No signal.
+    """
+    n = 48
+    base_rows = [(100, 105, 95, 102)] * n
+    df = _ohlc_df(base_rows, freq="5min")
+
+    htf = _ohlc_df([(100, 105, 95, 102)] * 4, freq="1h")
+    med = _ohlc_df([(100, 105, 95, 102)] * 8, freq="30min")
+
+    htf_trends = np.array([1, -1, -1, -1])
+    med_trends = np.array([-1, -1, 1, -1, -1, -1, -1, -1])
+    low_trends = np.array([-1] * 20 + [1] * 3 + [-1] * 25)
+
+    with patch("ms_engine.compute_market_structure") as mock_cms:
+        mock_cms.side_effect = [low_trends, med_trends, htf_trends]
+        trend_l = get_mtf_trend(df, "5min", 2, higher_tf_df=df)
+        trend_m = get_mtf_trend(df, "30min", 2, higher_tf_df=med)
+        trend_h = get_mtf_trend(df, "1h", 2, higher_tf_df=htf)
+
+    _, shorts = compute_cluster_signals(
+        trend_h.values, trend_m.values, trend_l.values
+    )
+
+    assert not shorts.any(), (
+        f"No short signal should fire — full setup completed before t_h "
+        f"confirmed, got signals at {np.where(shorts)[0]}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # _reset_long / _reset_short
 # ---------------------------------------------------------------------------

@@ -2,7 +2,7 @@
 
 ## Overview
 
-76 tests covering `ms_engine.py` (100%), `binance_data.py` (95% — only `__main__` block excluded), plus repainting and determinism tests.
+79 tests covering `ms_engine.py` (100%), `binance_data.py` (95% — only `__main__` block excluded), plus repainting and determinism tests.
 
 Run tests: `uv run pytest tests/ --cov=ms_engine --cov=binance_data --cov-report=term-missing`
 
@@ -63,6 +63,9 @@ Run tests: `uv run pytest tests/ --cov=ms_engine --cov=binance_data --cov-report
 | `test_mtf_trend_shift_applies_to_low_tf` | One-bar delay applies even when higher_tf_df is the base df itself (low TF computing its own trend) |
 | `test_get_mtf_trend_with_higher_tf_df_delays_by_one_bar` | Passing explicit higher_tf_df still delays trend by one HTF bar |
 | `test_cluster_signal_not_premature_with_lookahead_fix` | Integration test: cluster signal does not fire during an unclosed HTF bar where t_h would be prematurely visible |
+| `test_medium_dip_recovery_during_unclosed_htf_bar_not_tracked` | Medium dip/recovery during unclosed t_h bar is not counted as setup (exploits differential delay: 1h shift = 12 bars vs 30min shift = 6 bars) |
+| `test_full_setup_during_unclosed_htf_bar_not_tracked` | Entire long setup (mDip, mRec, lDip, signal) completing during unclosed t_h bar produces no signal |
+| `test_short_setup_during_unclosed_htf_bar_not_tracked` | Mirror of full setup test for the short side (t_h flips 1→-1) |
 
 ### _reset_long
 
