@@ -153,7 +153,7 @@ def get_mtf_trend(
         pivot_length,
     )
     trend_sr = pd.Series(trend_vals, index=htf.index, name="trend")
-    # Reindex onto the base df, forward-fill (no lookahead)
+    trend_sr = trend_sr.shift(1)  # available only after HTF bar closes (lookahead_off)
     trend_sr = trend_sr.reindex(df.index, method="ffill").fillna(0).astype(int)
     return trend_sr
 

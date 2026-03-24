@@ -1,5 +1,7 @@
 """Tests for ms_engine.py — targeting 100% coverage."""
 
+from unittest.mock import patch
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -234,6 +236,128 @@ def test_mtf_values_are_valid():
     df = _ohlc_df(rows, freq="5min")
     trend = get_mtf_trend(df, "30min", pivot_length=2)
     assert set(trend.values).issubset({-1, 0, 1})
+
+
+def test_mtf_trend_not_available_before_bar_closes():
+    """Higher-TF trend must only appear after the HTF bar closes (lookahead_off).
+
+    Setup: 18 base bars (5min) = three 30min HTF bars.
+    Mock compute_market_structure to return [0, 0, 1] for the 3 HTF bars.
+    The trend=1 from HTF bar 2 (open at 01:00) should NOT appear on base bars
+    01:00–01:25 — it should only appear from 01:30 onward (after bar 2 closes).
+    """
+    base_rows = [(100, 105, 95, 102)] * 18
+    df = _ohlc_df(base_rows, freq="5min")
+
+    htf_rows = [(100, 105, 95, 102)] * 3
+    htf = _ohlc_df(htf_rows, freq="30min")
+
+    with patch("ms_engine.compute_market_structure", return_value=np.array([0, 0, 1])):
+        trend = get_mtf_trend(df, "30min", pivot_length=2, higher_tf_df=htf)
+
+    # Bars 0–5 (00:00–00:25): HTF bar 0 hasn't closed yet → should be 0
+    assert all(trend.iloc[:6] == 0), (
+        f"Base bars within HTF bar 0 should show 0, got {trend.iloc[:6].values}"
+    )
+    # Bars 6–11 (00:30–00:55): HTF bar 0 closed with trend=0 → should be 0
+    assert all(trend.iloc[6:12] == 0), (
+        f"Base bars within HTF bar 1 should show 0 (from closed bar 0), got {trend.iloc[6:12].values}"
+    )
+    # Bars 12–17 (01:00–01:25): HTF bar 1 closed with trend=0 → should be 0
+    # HTF bar 2 (trend=1) has NOT closed yet, so it must NOT be visible here
+    assert all(trend.iloc[12:] == 0), (
+        f"Base bars within HTF bar 2 should still show 0 (bar 2 not closed), "
+        f"got {trend.iloc[12:].values}"
+    )
+
+
+def test_mtf_trend_shift_applies_to_low_tf():
+    """Even the low TF trend should be delayed by one bar (lookahead_off).
+
+    When higher_tf_df is the base df itself, each bar's trend should only
+    be visible from the NEXT bar onward.
+    """
+    base_rows = [(100, 105, 95, 102)] * 6
+    df = _ohlc_df(base_rows, freq="5min")
+
+    mock_trends = np.array([0, 0, 1, 1, 1, -1])
+    with patch("ms_engine.compute_market_structure", return_value=mock_trends):
+        trend = get_mtf_trend(df, "5min", pivot_length=2, higher_tf_df=df)
+
+    # Bar 0: no prior bar → 0
+    assert trend.iloc[0] == 0
+    # Bar 1: sees bar 0's trend (0)
+    assert trend.iloc[1] == 0
+    # Bar 2: sees bar 1's trend (0), NOT bar 2's trend (1)
+    assert trend.iloc[2] == 0, (
+        f"Bar 2 should show bar 1's trend (0), not its own (1), got {trend.iloc[2]}"
+    )
+    # Bar 3: sees bar 2's trend (1)
+    assert trend.iloc[3] == 1
+
+
+def test_get_mtf_trend_with_higher_tf_df_delays_by_one_bar():
+    """Passing higher_tf_df explicitly (as main.py does) must still delay."""
+    base_rows = [(100, 105, 95, 102)] * 12
+    df = _ohlc_df(base_rows, freq="5min")
+
+    htf_rows = [(100, 105, 95, 102)] * 2
+    htf = _ohlc_df(htf_rows, freq="30min")
+
+    with patch("ms_engine.compute_market_structure", return_value=np.array([0, 1])):
+        trend = get_mtf_trend(df, "30min", pivot_length=2, higher_tf_df=htf)
+
+    # First 6 base bars (HTF bar 0 period): no prior HTF bar → 0
+    assert all(trend.iloc[:6] == 0)
+    # Next 6 base bars (HTF bar 1 period): HTF bar 0 trend (0) forward-filled
+    assert all(trend.iloc[6:12] == 0), (
+        f"HTF bar 1 period should show bar 0's trend (0), got {trend.iloc[6:12].values}"
+    )
+
+
+def test_cluster_signal_not_premature_with_lookahead_fix():
+    """Integration test: a signal must not fire during an unclosed HTF bar.
+
+    Scenario: 36 base bars (5min) = three 1h HTF bars (12 base bars each).
+    HTF trend flips from -1 to 1 on bar 1. Without the fix, t_h=1 is visible
+    from base bar 12 onward (HTF bar 1's open), and the medium dip/recovery +
+    low dip/recovery sequence fires a premature long signal at base bar 21.
+    With the fix, t_h stays -1 until base bar 24 (after HTF bar 1 closes),
+    preventing the premature signal.
+    """
+    n = 36  # 3 HTF bars × 12 base bars each
+    base_rows = [(100, 105, 95, 102)] * n
+    df = _ohlc_df(base_rows, freq="5min")
+
+    # High TF (1h): 3 bars, trend flips on bar 1
+    htf_rows = [(100, 105, 95, 102)] * 3
+    htf = _ohlc_df(htf_rows, freq="1h")
+    htf_trends = np.array([-1, 1, 1])
+
+    with patch("ms_engine.compute_market_structure", return_value=htf_trends):
+        trend_h = get_mtf_trend(df, "1h", 2, higher_tf_df=htf)
+
+    # Manually construct med and low trends on the base index.
+    # Med: dips during early HTF bar 1, recovers from base bar 16.
+    trend_m = np.zeros(n, dtype=int)
+    trend_m[:16] = -1
+    trend_m[16:] = 1
+
+    # Low: dips at base bars 18–20, recovers at 21 → would signal at 21
+    # if t_h=1 were visible (medium already recovered, low just flipped).
+    trend_l = np.ones(n, dtype=int)
+    trend_l[18:21] = -1
+
+    longs, _ = compute_cluster_signals(
+        trend_h.values, trend_m, trend_l
+    )
+
+    # With the fix: t_h=1 is NOT visible until base bar 24, so the setup
+    # that builds during bars 12–23 never activates → no signal at bar 21.
+    assert not longs[12:24].any(), (
+        f"No long signal should fire during unclosed HTF bar 1, "
+        f"got signals at {np.where(longs[12:24])[0] + 12}"
+    )
 
 
 # ---------------------------------------------------------------------------

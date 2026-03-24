@@ -2,7 +2,7 @@
 
 ## Overview
 
-71 tests covering `ms_engine.py` (100%), `binance_data.py` (95% — only `__main__` block excluded), plus repainting and determinism tests.
+76 tests covering `ms_engine.py` (100%), `binance_data.py` (95% — only `__main__` block excluded), plus repainting and determinism tests.
 
 Run tests: `uv run pytest tests/ --cov=ms_engine --cov=binance_data --cov-report=term-missing`
 
@@ -59,6 +59,10 @@ Run tests: `uv run pytest tests/ --cov=ms_engine --cov=binance_data --cov-report
 |------|-------------|
 | `test_mtf_aligned_to_base_index` | Returned series has same index as the input base DataFrame |
 | `test_mtf_values_are_valid` | All forward-filled trend values are in {-1, 0, 1} |
+| `test_mtf_trend_not_available_before_bar_closes` | HTF trend is not visible on base bars until the HTF bar closes (lookahead_off) |
+| `test_mtf_trend_shift_applies_to_low_tf` | One-bar delay applies even when higher_tf_df is the base df itself (low TF computing its own trend) |
+| `test_get_mtf_trend_with_higher_tf_df_delays_by_one_bar` | Passing explicit higher_tf_df still delays trend by one HTF bar |
+| `test_cluster_signal_not_premature_with_lookahead_fix` | Integration test: cluster signal does not fire during an unclosed HTF bar where t_h would be prematurely visible |
 
 ### _reset_long
 
