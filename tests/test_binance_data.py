@@ -2,13 +2,18 @@
 
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
 
+import binance_data
 from binance_data import (
+    _cache_path,
+    _read_cache,
     _to_binance_interval,
+    _write_cache,
     fetch_klines,
     fetch_klines_full,
     fetch_multi,
@@ -141,7 +146,7 @@ def test_fetch_klines_full_single_page(mock_fk):
         },
         index=idx,
     )
-    result = fetch_klines_full("BTCUSDT", "5min", n_bars=5)
+    result = fetch_klines_full("BTCUSDT", "5min", n_bars=5, use_cache=False)
     assert len(result) == 5
 
 
@@ -166,7 +171,7 @@ def test_fetch_klines_full_pagination(mock_fk):
         make_chunk("2024-01-02 01:00", 1500, 200),
         make_chunk("2024-01-01 00:00", 300, 100),
     ]
-    result = fetch_klines_full("BTCUSDT", "5min", n_bars=2000)
+    result = fetch_klines_full("BTCUSDT", "5min", n_bars=2000, use_cache=False)
     assert mock_fk.call_count == 2
     assert len(result) == 1800
 
@@ -176,7 +181,7 @@ def test_fetch_klines_full_empty(mock_fk):
     mock_fk.return_value = pd.DataFrame(
         columns=["open", "high", "low", "close", "volume"]
     )
-    result = fetch_klines_full("BTCUSDT", "5min", n_bars=100)
+    result = fetch_klines_full("BTCUSDT", "5min", n_bars=100, use_cache=False)
     assert result.empty
 
 
@@ -188,7 +193,7 @@ def test_fetch_klines_full_partial_page_stops(mock_fk):
         {"open": 100, "high": 105, "low": 95, "close": 102, "volume": 10},
         index=idx,
     )
-    fetch_klines_full("BTCUSDT", "5min", n_bars=499)
+    fetch_klines_full("BTCUSDT", "5min", n_bars=499, use_cache=False)
     assert mock_fk.call_count == 1
 
 
@@ -213,3 +218,124 @@ def test_fetch_multi_returns_keyed_dict(mock_fkf):
     assert set(result.keys()) == {("BTCUSDT", "5min"), ("ETHUSDT", "4h")}
     assert len(result[("BTCUSDT", "5min")]) == 10
     assert mock_fkf.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# Cache helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_df(start="2024-01-01", periods=100, freq="5min"):
+    idx = pd.date_range(start, periods=periods, freq=freq, tz="UTC")
+    idx.name = "timestamp"
+    return pd.DataFrame(
+        {
+            "open": range(periods),
+            "high": range(5, 5 + periods),
+            "low": range(-5, -5 + periods),
+            "close": range(1, 1 + periods),
+            "volume": [10] * periods,
+        },
+        index=idx,
+    )
+
+
+def test_cache_path():
+    p = _cache_path("BTCUSDT", "5min", "futures-usdt")
+    assert p.parts[-3:] == ("futures-usdt", "BTCUSDT", "5min.parquet")
+
+
+def test_read_cache_missing(tmp_path):
+    assert _read_cache(tmp_path / "nope.parquet") is None
+
+
+def test_read_cache_corrupt(tmp_path):
+    bad = tmp_path / "bad.parquet"
+    bad.write_bytes(b"not a parquet file")
+    assert _read_cache(bad) is None
+    assert not bad.exists()
+
+
+def test_read_cache_wrong_schema(tmp_path):
+    wrong = tmp_path / "wrong.parquet"
+    pd.DataFrame({"x": [1]}).to_parquet(wrong, engine="fastparquet")
+    assert _read_cache(wrong) is None
+    assert not wrong.exists()
+
+
+def test_write_and_read_roundtrip(tmp_path):
+    path = tmp_path / "test.parquet"
+    df = _make_df(periods=10)
+    _write_cache(path, df)
+    loaded = _read_cache(path)
+    assert loaded is not None
+    pd.testing.assert_frame_equal(loaded, df, check_freq=False)
+
+
+def test_write_cache_atomic_on_error(tmp_path):
+    """If to_parquet raises, no partial file is left behind."""
+    path = tmp_path / "sub" / "test.parquet"
+    with patch("binance_data.pd.DataFrame.to_parquet", side_effect=RuntimeError("boom")):
+        with pytest.raises(RuntimeError):
+            _write_cache(path, _make_df(periods=5))
+    # No .tmp file left behind, and target doesn't exist
+    assert not path.exists()
+    assert not list(tmp_path.rglob("*.tmp"))
+
+
+# ---------------------------------------------------------------------------
+# Cache integration with fetch_klines_full
+# ---------------------------------------------------------------------------
+
+
+@patch("binance_data.fetch_klines")
+def test_cache_populated_on_first_run(mock_fk, tmp_path, monkeypatch):
+    monkeypatch.setattr(binance_data, "_CACHE_DIR", tmp_path)
+    idx = pd.date_range("2024-01-01", periods=50, freq="5min", tz="UTC")
+    mock_fk.return_value = pd.DataFrame(
+        {"open": 100, "high": 105, "low": 95, "close": 102, "volume": 10},
+        index=idx,
+    )
+    fetch_klines_full("BTCUSDT", "5min", n_bars=50, market="spot", use_cache=True)
+    cache_file = tmp_path / "spot" / "BTCUSDT" / "5min.parquet"
+    assert cache_file.exists()
+
+
+@patch("binance_data.fetch_klines")
+def test_cache_tail_only_on_second_run(mock_fk, tmp_path, monkeypatch):
+    monkeypatch.setattr(binance_data, "_CACHE_DIR", tmp_path)
+
+    # Pre-populate cache with 100 bars
+    cached = _make_df("2024-01-01", periods=100, freq="5min")
+    cache_file = tmp_path / "spot" / "BTCUSDT" / "5min.parquet"
+    _write_cache(cache_file, cached)
+
+    # Tail fetch returns 5 new bars
+    tail_idx = pd.date_range("2024-01-01 08:10", periods=5, freq="5min", tz="UTC")
+    mock_fk.return_value = pd.DataFrame(
+        {"open": 200, "high": 210, "low": 190, "close": 205, "volume": 20},
+        index=tail_idx,
+    )
+
+    result = fetch_klines_full(
+        "BTCUSDT", "5min", n_bars=200, market="spot",
+        closed_only=False, use_cache=True,
+    )
+    # Should have called fetch_klines with start_time (tail fetch), not a full pagination
+    call_kwargs = mock_fk.call_args
+    assert call_kwargs.kwargs.get("start_time") or call_kwargs[1].get("start_time") \
+        or (len(call_kwargs[0]) > 2 and call_kwargs[0][2] is not None)
+    assert len(result) > len(cached) - 1  # got cached + tail minus dedup
+
+
+@patch("binance_data.fetch_klines")
+def test_use_cache_false_skips_cache(mock_fk, tmp_path, monkeypatch):
+    monkeypatch.setattr(binance_data, "_CACHE_DIR", tmp_path)
+    idx = pd.date_range("2024-01-01", periods=10, freq="5min", tz="UTC")
+    mock_fk.return_value = pd.DataFrame(
+        {"open": 100, "high": 105, "low": 95, "close": 102, "volume": 10},
+        index=idx,
+    )
+    fetch_klines_full("BTCUSDT", "5min", n_bars=10, market="spot", use_cache=False)
+    cache_file = tmp_path / "spot" / "BTCUSDT" / "5min.parquet"
+    assert not cache_file.exists()
