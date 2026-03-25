@@ -19,12 +19,14 @@ Use `uv` for package management (lockfile: `uv.lock`). Python 3.12 required.
 
 ## Architecture
 
-All core logic lives in `ms_engine.py`. `main.py` is the entry point that wires it together. `binance_data.py` handles data fetching from Binance. `chart.py` renders candlestick charts with market-structure overlays via Plotly.
+All core logic lives in `ms_engine.py`. `main.py` is the entry point that wires it together. `binance_data.py` handles data fetching from Binance. `tradfi_data.py` handles data fetching from OANDA (forex, indices, commodities). `chart.py` renders candlestick charts with market-structure overlays via Plotly.
+
+`tradfi_data.py` requires `OANDA_API` set in `.env` or as an environment variable. Set `OANDA_ENV=live` for live accounts (defaults to practice).
 
 ### Data flow
 
 ```
-Binance API (binance_data.py)
+Binance API (binance_data.py)  /  OANDA API (tradfi_data.py)
     → detect_pivots()          # manual window scan, confirmed N bars later
     → compute_market_structure()  # state machine over pivot arrays → trend array
     → get_mtf_trend()          # forward-fill higher-TF trend to base index
