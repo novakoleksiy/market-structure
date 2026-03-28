@@ -66,9 +66,7 @@ def _read_cache(path: Path) -> pd.DataFrame | None:
 
 def _write_cache(path: Path, df: pd.DataFrame) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with NamedTemporaryFile(
-        dir=path.parent, suffix=".tmp", delete=False
-    ) as tmp:
+    with NamedTemporaryFile(dir=path.parent, suffix=".tmp", delete=False) as tmp:
         tmp_path = tmp.name
     try:
         df.to_parquet(tmp_path, engine="fastparquet")
@@ -195,15 +193,17 @@ def fetch_klines(
     rows = []
     for c in candles:
         mid = c["mid"]
-        rows.append({
-            "timestamp": c["time"],
-            "open": float(mid["o"]),
-            "high": float(mid["h"]),
-            "low": float(mid["l"]),
-            "close": float(mid["c"]),
-            "volume": int(c["volume"]),
-            "complete": c["complete"],
-        })
+        rows.append(
+            {
+                "timestamp": c["time"],
+                "open": float(mid["o"]),
+                "high": float(mid["h"]),
+                "low": float(mid["l"]),
+                "close": float(mid["c"]),
+                "volume": int(c["volume"]),
+                "complete": c["complete"],
+            }
+        )
 
     df = pd.DataFrame(rows)
     df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
@@ -233,8 +233,12 @@ def _fetch_tail(
 
     while True:
         chunk = fetch_klines(
-            symbol, interval, limit=_CHUNK,
-            start_time=cursor, asset_class=asset_class, closed_only=False,
+            symbol,
+            interval,
+            limit=_CHUNK,
+            start_time=cursor,
+            asset_class=asset_class,
+            closed_only=False,
         )
         if chunk.empty:
             break
@@ -245,8 +249,10 @@ def _fetch_tail(
 
     if not chunks:
         return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
-    return pd.concat(chunks).sort_index().pipe(
-        lambda d: d[~d.index.duplicated(keep="last")]
+    return (
+        pd.concat(chunks)
+        .sort_index()
+        .pipe(lambda d: d[~d.index.duplicated(keep="last")])
     )
 
 
@@ -318,7 +324,9 @@ def fetch_klines_full(
         If ``True`` (default), read/write a local Parquet cache and only
         fetch new bars from OANDA.
     """
-    cached = _read_cache(_cache_path(symbol, interval, asset_class)) if use_cache else None
+    cached = (
+        _read_cache(_cache_path(symbol, interval, asset_class)) if use_cache else None
+    )
 
     if cached is not None and not cached.empty:
         # Drop last cached row — it may have been an incomplete candle.
@@ -392,8 +400,12 @@ def fetch_multi(
     def _fetch(task: tuple[str, str]) -> tuple[tuple[str, str], pd.DataFrame]:
         symbol, interval = task
         df = fetch_klines_full(
-            symbol, interval, n_bars=n_bars, asset_class=asset_class,
-            closed_only=closed_only, use_cache=use_cache,
+            symbol,
+            interval,
+            n_bars=n_bars,
+            asset_class=asset_class,
+            closed_only=closed_only,
+            use_cache=use_cache,
         )
         return task, df
 
@@ -406,5 +418,5 @@ def fetch_multi(
 
 if __name__ == "__main__":
     df = fetch_klines("EUR_USD", "1D", limit=100, asset_class="forex")
-    print(df.tail())
+    print(df.tail(20))
     print(f"\n{len(df)} bars fetched, index: {df.index[0]} → {df.index[-1]}")
