@@ -10,6 +10,8 @@ from tempfile import NamedTemporaryFile
 
 import pandas as pd
 
+from chart import plot_market_structure
+
 # ---------------------------------------------------------------------------
 # OANDA API configuration
 # ---------------------------------------------------------------------------
@@ -418,5 +420,6 @@ def fetch_multi(
 
 if __name__ == "__main__":
     df = fetch_klines("EUR_USD", "1D", limit=100, asset_class="forex")
-    print(df.tail(20))
     print(f"\n{len(df)} bars fetched, index: {df.index[0]} → {df.index[-1]}")
+    fig = plot_market_structure(df)
+    fig.show()
