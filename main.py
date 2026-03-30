@@ -19,34 +19,35 @@ WARMUP_BARS = 500
 _CLUSTER_1 = {"low": "5min", "med": "30min", "high": "4h"}
 _CLUSTER_2 = {"low": "30min", "med": "4h", "high": "1D"}
 _CLUSTER_3 = {"low": "4h", "med": "1D", "high": "1W"}
-ALL_CLUSTERS = {"C1": _CLUSTER_1, "C2": _CLUSTER_2, "C3": _CLUSTER_3}
+_CLUSTER_4 = {"low": "1D", "med": "1W", "high": "1ME"}
+ALL_CLUSTERS = {"C1": _CLUSTER_1, "C2": _CLUSTER_2, "C3": _CLUSTER_3, "C4": _CLUSTER_4}
 ALL_TIMEFRAMES = list({tf for c in ALL_CLUSTERS.values() for tf in c.values()})
 
 
 @dataclass(frozen=True)
 class Symbol:
     name: str
-    source: str        # "binance" or "oanda"
+    source: str  # "binance" or "oanda"
     source_param: str  # "futures-usdt" | "forex" | "indices" | "commodities"
 
 
 UNIVERSE = [
-    Symbol("BTCUSDT",    "binance", "futures-usdt"),
-    Symbol("ETHUSDT",    "binance", "futures-usdt"),
-    Symbol("SOLUSDT",    "binance", "futures-usdt"),
-    Symbol("EUR_USD",    "oanda",   "forex"),
-    Symbol("GBP_USD",    "oanda",   "forex"),
-    Symbol("SPX500_USD", "oanda",   "indices"),
-    Symbol("XAU_USD",    "oanda",   "commodities"),
-    Symbol("XAG_USD",    "oanda",   "commodities"),
+    Symbol("BTCUSDT", "binance", "futures-usdt"),
+    Symbol("ETHUSDT", "binance", "futures-usdt"),
+    Symbol("SOLUSDT", "binance", "futures-usdt"),
+    Symbol("EUR_USD", "oanda", "forex"),
+    Symbol("GBP_USD", "oanda", "forex"),
+    Symbol("SPX500_USD", "oanda", "indices"),
+    Symbol("XAU_USD", "oanda", "commodities"),
+    Symbol("XAG_USD", "oanda", "commodities"),
 ]
 
 
 @dataclass
 class Signal:
     symbol: str
-    cluster: str      # "C1", "C2", "C3"
-    direction: str    # "long" or "short"
+    cluster: str  # "C1", "C2", "C3"
+    direction: str  # "long" or "short"
     timestamp: datetime
     price: float
 
@@ -121,8 +122,11 @@ def generate_signals(
             df_h = data[(sym.name, cluster["high"])]
 
             df, longs, shorts = run_cluster(
-                df=df_l, df_m=df_m, df_h=df_h,
-                cluster=cluster, show_length=show_length,
+                df=df_l,
+                df_m=df_m,
+                df_h=df_h,
+                cluster=cluster,
+                show_length=show_length,
             )
 
             for i in range(len(df)):
@@ -160,7 +164,8 @@ if __name__ == "__main__":
                 df=data[(sym.name, cluster["low"])],
                 df_m=data[(sym.name, cluster["med"])],
                 df_h=data[(sym.name, cluster["high"])],
-                cluster=cluster, show_length=500,
+                cluster=cluster,
+                show_length=500,
             )
             fig = plot_market_structure(df, longs=longs, shorts=shorts)
             fig.show()
