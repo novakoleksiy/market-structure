@@ -7,19 +7,19 @@ import plotly.graph_objects as go
 from ms_engine import compute_market_structure, detect_pivots
 
 
-def _trend_style(color: str) -> dict:
+def _trend_style(fill: str, border: str) -> dict:
     return dict(
-        increasing_fillcolor=color,
-        increasing_line_color=color,
-        decreasing_fillcolor=color,
-        decreasing_line_color=color,
+        increasing_fillcolor=fill,
+        increasing_line_color=border,
+        decreasing_fillcolor=fill,
+        decreasing_line_color=border,
     )
 
 
 _STYLES = {
-    1: _trend_style("#26a69a"),
-    -1: _trend_style("#ef5350"),
-    0: _trend_style("#888888"),
+    1: _trend_style("#80cbc4", "#00897b"),  # light teal fill, bright teal border
+    -1: _trend_style("#ff8a80", "#e53935"),  # light red fill, bright red border
+    0: _trend_style("#888888", "#888888"),
 }
 _NAMES = {1: "Uptrend", -1: "Downtrend", 0: "Neutral"}
 
@@ -45,6 +45,9 @@ def plot_market_structure(
     trend = compute_market_structure(highs, lows, closes, pivot_length)
     ph, pl = detect_pivots(highs, lows, pivot_length)
 
+    # String labels collapse weekend/holiday gaps on the categorical x-axis
+    x_labels = df.index.strftime("%m-%d %H:%M").to_numpy()
+
     fig = go.Figure()
 
     # Candlesticks colored by trend
@@ -54,7 +57,7 @@ def plot_market_structure(
             continue
         fig.add_trace(
             go.Candlestick(
-                x=df.index[mask],
+                x=x_labels[mask],
                 open=df["open"].values[mask],
                 high=highs[mask],
                 low=lows[mask],
@@ -73,7 +76,7 @@ def plot_market_structure(
 
     fig.add_trace(
         go.Scatter(
-            x=df.index[ph_actual],
+            x=x_labels[ph_actual],
             y=highs[ph_actual] + offset,
             mode="markers",
             name="Pivot High",
@@ -82,7 +85,7 @@ def plot_market_structure(
     )
     fig.add_trace(
         go.Scatter(
-            x=df.index[pl_actual],
+            x=x_labels[pl_actual],
             y=lows[pl_actual] - offset,
             mode="markers",
             name="Pivot Low",
@@ -95,7 +98,7 @@ def plot_market_structure(
         idx = np.where(longs)[0]
         fig.add_trace(
             go.Scatter(
-                x=df.index[idx],
+                x=x_labels[idx],
                 y=lows[idx] - offset * 2,
                 mode="markers",
                 name="Long Signal",
@@ -106,7 +109,7 @@ def plot_market_structure(
         idx = np.where(shorts)[0]
         fig.add_trace(
             go.Scatter(
-                x=df.index[idx],
+                x=x_labels[idx],
                 y=highs[idx] + offset * 2,
                 mode="markers",
                 name="Short Signal",
@@ -120,7 +123,20 @@ def plot_market_structure(
     fig.update_layout(
         title=dict(text=" · ".join(title_parts)) if title_parts else None,
         xaxis_rangeslider_visible=False,
+        xaxis=dict(
+            type="category",
+            categoryorder="array",
+            categoryarray=x_labels,
+            rangeslider=dict(visible=False),
+            showgrid=False,
+            linecolor="rgba(255,255,255,0.3)",
+        ),
         template="plotly_dark",
-        yaxis=dict(autorange=True, fixedrange=False),
+        yaxis=dict(
+            autorange=True,
+            fixedrange=False,
+            showgrid=False,
+            linecolor="rgba(255,255,255,0.3)",
+        ),
     )
     return fig

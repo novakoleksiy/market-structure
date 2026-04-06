@@ -44,10 +44,14 @@ def test_trend_changes_with_history_length(pivot_length: int):
     if len(mismatches) == 0:
         pytest.skip("No divergence found with this seed/params (unlikely but possible)")
 
-    print(f"\n  pivot_length={pivot_length}: {len(mismatches)} mismatches "
-          f"out of {tail} bars ({100*len(mismatches)/tail:.1f}%)")
-    print(f"  First mismatch at tail index {mismatches[0]}: "
-          f"full={trend_full_tail[mismatches[0]]}, short={trend_short[mismatches[0]]}")
+    print(
+        f"\n  pivot_length={pivot_length}: {len(mismatches)} mismatches "
+        f"out of {tail} bars ({100 * len(mismatches) / tail:.1f}%)"
+    )
+    print(
+        f"  First mismatch at tail index {mismatches[0]}: "
+        f"full={trend_full_tail[mismatches[0]]}, short={trend_short[mismatches[0]]}"
+    )
 
 
 @pytest.mark.parametrize("pivot_length", [2, 3, 5])
