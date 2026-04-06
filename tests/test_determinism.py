@@ -72,6 +72,10 @@ def test_signals_deterministic_across_limits():
         pytest.fail("; ".join(msg_parts))
 
     print(f"\n  Overlapping bars: {len(overlap)}")
-    print(f"  Longs in 1000-run: {longs_a.sum()}, in 1500-run overlap: {longs_overlap_b.sum()}")
-    print(f"  Shorts in 1000-run: {shorts_a.sum()}, in 1500-run overlap: {shorts_overlap_b.sum()}")
+    print(
+        f"  Longs in 1000-run: {longs_a.sum()}, in 1500-run overlap: {longs_overlap_b.sum()}"
+    )
+    print(
+        f"  Shorts in 1000-run: {shorts_a.sum()}, in 1500-run overlap: {shorts_overlap_b.sum()}"
+    )
     print("  All signals match.")

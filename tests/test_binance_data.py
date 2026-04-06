@@ -2,7 +2,6 @@
 
 import json
 from datetime import datetime, timezone
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -27,11 +26,21 @@ _NOW_MS = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
 _BASE_MS = _NOW_MS - 3_600_000  # 1h ago
 
 
-def _make_kline(open_time_ms: int, o=100, h=105, l=95, c=102, v=10):
+def _make_kline(open_time_ms: int, o=100, h=105, low=95, c=102, v=10):
     close_time_ms = open_time_ms + 300_000 - 1
     return [
-        open_time_ms, str(o), str(h), str(l), str(c), str(v),
-        close_time_ms, "1000", "50", "5", "500", "0",
+        open_time_ms,
+        str(o),
+        str(h),
+        str(low),
+        str(c),
+        str(v),
+        close_time_ms,
+        "1000",
+        "50",
+        "5",
+        "500",
+        "0",
     ]
 
 
@@ -275,7 +284,9 @@ def test_write_and_read_roundtrip(tmp_path):
 def test_write_cache_atomic_on_error(tmp_path):
     """If to_parquet raises, no partial file is left behind."""
     path = tmp_path / "sub" / "test.parquet"
-    with patch("binance_data.pd.DataFrame.to_parquet", side_effect=RuntimeError("boom")):
+    with patch(
+        "binance_data.pd.DataFrame.to_parquet", side_effect=RuntimeError("boom")
+    ):
         with pytest.raises(RuntimeError):
             _write_cache(path, _make_df(periods=5))
     # No .tmp file left behind, and target doesn't exist
@@ -318,13 +329,20 @@ def test_cache_tail_only_on_second_run(mock_fk, tmp_path, monkeypatch):
     )
 
     result = fetch_klines_full(
-        "BTCUSDT", "5min", n_bars=200, market="spot",
-        closed_only=False, use_cache=True,
+        "BTCUSDT",
+        "5min",
+        n_bars=200,
+        market="spot",
+        closed_only=False,
+        use_cache=True,
     )
     # Should have called fetch_klines with start_time (tail fetch), not a full pagination
     call_kwargs = mock_fk.call_args
-    assert call_kwargs.kwargs.get("start_time") or call_kwargs[1].get("start_time") \
+    assert (
+        call_kwargs.kwargs.get("start_time")
+        or call_kwargs[1].get("start_time")
         or (len(call_kwargs[0]) > 2 and call_kwargs[0][2] is not None)
+    )
     assert len(result) > len(cached) - 1  # got cached + tail minus dedup
 
 

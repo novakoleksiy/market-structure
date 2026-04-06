@@ -38,9 +38,7 @@ def _read_cache(path: Path) -> pd.DataFrame | None:
 
 def _write_cache(path: Path, df: pd.DataFrame) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with NamedTemporaryFile(
-        dir=path.parent, suffix=".tmp", delete=False
-    ) as tmp:
+    with NamedTemporaryFile(dir=path.parent, suffix=".tmp", delete=False) as tmp:
         tmp_path = tmp.name
     try:
         df.to_parquet(tmp_path, engine="fastparquet")
@@ -60,8 +58,12 @@ def _fetch_tail(
 
     while True:
         chunk = fetch_klines(
-            symbol, interval, limit=_CHUNK,
-            start_time=cursor, market=market, closed_only=False,
+            symbol,
+            interval,
+            limit=_CHUNK,
+            start_time=cursor,
+            market=market,
+            closed_only=False,
         )
         if chunk.empty:
             break
@@ -72,9 +74,12 @@ def _fetch_tail(
 
     if not chunks:
         return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
-    return pd.concat(chunks).sort_index().pipe(
-        lambda d: d[~d.index.duplicated(keep="last")]
+    return (
+        pd.concat(chunks)
+        .sort_index()
+        .pipe(lambda d: d[~d.index.duplicated(keep="last")])
     )
+
 
 _SPOT_URL = "https://api.binance.com/api/v3/klines"
 _FUTURES_USDT_URL = "https://fapi.binance.com/fapi/v1/klines"
@@ -341,8 +346,12 @@ def fetch_multi(
     def _fetch(task: tuple[str, str]) -> tuple[tuple[str, str], pd.DataFrame]:
         symbol, interval = task
         df = fetch_klines_full(
-            symbol, interval, n_bars=n_bars, market=market,
-            closed_only=closed_only, use_cache=use_cache,
+            symbol,
+            interval,
+            n_bars=n_bars,
+            market=market,
+            closed_only=closed_only,
+            use_cache=use_cache,
         )
         return task, df
 

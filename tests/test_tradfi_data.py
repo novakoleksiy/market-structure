@@ -1,8 +1,7 @@
 """Tests for tradfi_data.py — targeting 100% coverage."""
 
 import json
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -24,21 +23,31 @@ from tradfi_data import (
 # ---------------------------------------------------------------------------
 
 
-def _make_candle(time_str: str, o=1.09, h=1.10, l=1.08, c=1.095, v=100, complete=True):
+def _make_candle(
+    time_str: str,
+    o=1.09,
+    h=1.10,
+    low=1.08,
+    c=1.095,
+    v=100,
+    complete=True,
+):
     return {
         "time": time_str,
-        "mid": {"o": str(o), "h": str(h), "l": str(l), "c": str(c)},
+        "mid": {"o": str(o), "h": str(h), "l": str(low), "c": str(c)},
         "volume": v,
         "complete": complete,
     }
 
 
 def _make_oanda_response(candles):
-    body = json.dumps({
-        "instrument": "EUR_USD",
-        "granularity": "M5",
-        "candles": candles,
-    }).encode()
+    body = json.dumps(
+        {
+            "instrument": "EUR_USD",
+            "granularity": "M5",
+            "candles": candles,
+        }
+    ).encode()
     resp = MagicMock()
     resp.read.return_value = body
     resp.__enter__ = lambda s: s
@@ -73,6 +82,7 @@ def test_to_oanda_granularity_unsupported():
 def test_get_api_key_from_env(monkeypatch):
     monkeypatch.setenv("OANDA_API", "test-key-123")
     from tradfi_data import _get_api_key
+
     assert _get_api_key() == "test-key-123"
 
 
@@ -82,7 +92,8 @@ def test_get_api_key_from_dotenv(tmp_path, monkeypatch):
     env_file.write_text("OANDA_API=file-key-456\n")
     # Redirect the .env lookup to our tmp_path
     monkeypatch.setattr(
-        tradfi_data, "_get_api_key",
+        tradfi_data,
+        "_get_api_key",
         lambda: next(
             line.split("=", 1)[1].strip()
             for line in env_file.read_text().splitlines()
@@ -100,10 +111,7 @@ def test_get_api_key_from_dotenv(tmp_path, monkeypatch):
 @patch("tradfi_data._get_api_key", return_value="test-key")
 @patch("tradfi_data.urllib.request.urlopen")
 def test_fetch_klines_basic(mock_urlopen, _mock_key):
-    candles = [
-        _make_candle(f"2024-01-15T0{i}:00:00.000000000Z")
-        for i in range(5)
-    ]
+    candles = [_make_candle(f"2024-01-15T0{i}:00:00.000000000Z") for i in range(5)]
     mock_urlopen.return_value = _make_oanda_response(candles)
     df = fetch_klines("EUR_USD", "5min", limit=5)
     assert isinstance(df, pd.DataFrame)
@@ -116,9 +124,11 @@ def test_fetch_klines_basic(mock_urlopen, _mock_key):
 @patch("tradfi_data._get_api_key", return_value="test-key")
 @patch("tradfi_data.urllib.request.urlopen")
 def test_fetch_klines_auth_header(mock_urlopen, _mock_key):
-    mock_urlopen.return_value = _make_oanda_response([
-        _make_candle("2024-01-15T00:00:00.000000000Z"),
-    ])
+    mock_urlopen.return_value = _make_oanda_response(
+        [
+            _make_candle("2024-01-15T00:00:00.000000000Z"),
+        ]
+    )
     fetch_klines("EUR_USD", "5min")
     req = mock_urlopen.call_args[0][0]
     assert req.get_header("Authorization") == "Bearer test-key"
@@ -127,9 +137,11 @@ def test_fetch_klines_auth_header(mock_urlopen, _mock_key):
 @patch("tradfi_data._get_api_key", return_value="test-key")
 @patch("tradfi_data.urllib.request.urlopen")
 def test_fetch_klines_url_contains_instrument(mock_urlopen, _mock_key):
-    mock_urlopen.return_value = _make_oanda_response([
-        _make_candle("2024-01-15T00:00:00.000000000Z"),
-    ])
+    mock_urlopen.return_value = _make_oanda_response(
+        [
+            _make_candle("2024-01-15T00:00:00.000000000Z"),
+        ]
+    )
     fetch_klines("SPX500_USD", "1D", asset_class="indices")
     req = mock_urlopen.call_args[0][0]
     assert "SPX500_USD" in req.full_url
@@ -138,9 +150,11 @@ def test_fetch_klines_url_contains_instrument(mock_urlopen, _mock_key):
 @patch("tradfi_data._get_api_key", return_value="test-key")
 @patch("tradfi_data.urllib.request.urlopen")
 def test_fetch_klines_start_and_end_time(mock_urlopen, _mock_key):
-    mock_urlopen.return_value = _make_oanda_response([
-        _make_candle("2024-01-15T00:00:00.000000000Z"),
-    ])
+    mock_urlopen.return_value = _make_oanda_response(
+        [
+            _make_candle("2024-01-15T00:00:00.000000000Z"),
+        ]
+    )
     start = datetime(2024, 1, 1)
     end = datetime(2024, 1, 2)
     fetch_klines("EUR_USD", "5min", start_time=start, end_time=end)
@@ -367,12 +381,19 @@ def test_cache_tail_only_on_second_run(mock_fk, tmp_path, monkeypatch):
     )
 
     result = fetch_klines_full(
-        "EUR_USD", "5min", n_bars=200, asset_class="forex",
-        closed_only=False, use_cache=True,
+        "EUR_USD",
+        "5min",
+        n_bars=200,
+        asset_class="forex",
+        closed_only=False,
+        use_cache=True,
     )
     call_kwargs = mock_fk.call_args
-    assert call_kwargs.kwargs.get("start_time") or call_kwargs[1].get("start_time") \
+    assert (
+        call_kwargs.kwargs.get("start_time")
+        or call_kwargs[1].get("start_time")
         or (len(call_kwargs[0]) > 2 and call_kwargs[0][2] is not None)
+    )
     assert len(result) > len(cached) - 1
 
 
@@ -384,6 +405,8 @@ def test_use_cache_false_skips_cache(mock_fk, tmp_path, monkeypatch):
         {"open": 1.09, "high": 1.10, "low": 1.08, "close": 1.095, "volume": 100},
         index=idx,
     )
-    fetch_klines_full("EUR_USD", "5min", n_bars=10, asset_class="forex", use_cache=False)
+    fetch_klines_full(
+        "EUR_USD", "5min", n_bars=10, asset_class="forex", use_cache=False
+    )
     cache_file = tmp_path / "forex" / "EUR_USD" / "5min.parquet"
     assert not cache_file.exists()

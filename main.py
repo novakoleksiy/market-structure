@@ -61,7 +61,9 @@ def fetch_all(
     """Fetch all timeframes for every symbol, grouped by source."""
     all_data: dict[tuple[str, str], pd.DataFrame] = {}
 
-    keyfunc = lambda s: (s.source, s.source_param)
+    def keyfunc(symbol: Symbol) -> tuple[str, str]:
+        return symbol.source, symbol.source_param
+
     sorted_universe = sorted(universe, key=keyfunc)
 
     for (source, param), syms in groupby(sorted_universe, key=keyfunc):

@@ -4,7 +4,6 @@ from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from ms_engine import (
     ClusterState,
@@ -348,9 +347,7 @@ def test_cluster_signal_not_premature_with_lookahead_fix():
     trend_l = np.ones(n, dtype=int)
     trend_l[18:21] = -1
 
-    longs, _ = compute_cluster_signals(
-        trend_h.values, trend_m, trend_l
-    )
+    longs, _ = compute_cluster_signals(trend_h.values, trend_m, trend_l)
 
     # With the fix: t_h=1 is NOT visible until base bar 24, so the setup
     # that builds during bars 12–23 never activates → no signal at bar 21.
@@ -396,9 +393,7 @@ def test_medium_dip_recovery_during_unclosed_htf_bar_not_tracked():
         trend_m = get_mtf_trend(df, "30min", 2, higher_tf_df=med)
         trend_h = get_mtf_trend(df, "1h", 2, higher_tf_df=htf)
 
-    longs, _ = compute_cluster_signals(
-        trend_h.values, trend_m.values, trend_l.values
-    )
+    longs, _ = compute_cluster_signals(trend_h.values, trend_m.values, trend_l.values)
 
     assert not longs.any(), (
         f"No long signal should fire — medium dip/recovery happened before "
@@ -439,9 +434,7 @@ def test_full_setup_during_unclosed_htf_bar_not_tracked():
         trend_m = get_mtf_trend(df, "30min", 2, higher_tf_df=med)
         trend_h = get_mtf_trend(df, "1h", 2, higher_tf_df=htf)
 
-    longs, _ = compute_cluster_signals(
-        trend_h.values, trend_m.values, trend_l.values
-    )
+    longs, _ = compute_cluster_signals(trend_h.values, trend_m.values, trend_l.values)
 
     assert not longs.any(), (
         f"No long signal should fire — full setup completed before t_h "
@@ -479,9 +472,7 @@ def test_short_setup_during_unclosed_htf_bar_not_tracked():
         trend_m = get_mtf_trend(df, "30min", 2, higher_tf_df=med)
         trend_h = get_mtf_trend(df, "1h", 2, higher_tf_df=htf)
 
-    _, shorts = compute_cluster_signals(
-        trend_h.values, trend_m.values, trend_l.values
-    )
+    _, shorts = compute_cluster_signals(trend_h.values, trend_m.values, trend_l.values)
 
     assert not shorts.any(), (
         f"No short signal should fire — full setup completed before t_h "
@@ -662,9 +653,7 @@ def test_cluster_empty_input():
 
 
 def test_cluster_single_bar():
-    longs, shorts = compute_cluster_signals(
-        np.array([1]), np.array([1]), np.array([1])
-    )
+    longs, shorts = compute_cluster_signals(np.array([1]), np.array([1]), np.array([1]))
     assert not longs[0]
 
 
