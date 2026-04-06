@@ -11,6 +11,7 @@ import binance_data
 import tradfi_data
 from chart import plot_market_structure
 from ms_engine import compute_cluster_signals, get_mtf_trend
+from universe import UNIVERSE, Symbol
 
 # -- Config -----------------------------------------------------------------
 PIVOT_LENGTH = 2
@@ -20,27 +21,13 @@ _CLUSTER_1 = {"low": "5min", "med": "30min", "high": "4h"}
 _CLUSTER_2 = {"low": "30min", "med": "4h", "high": "1D"}
 _CLUSTER_3 = {"low": "4h", "med": "1D", "high": "1W"}
 _CLUSTER_4 = {"low": "1D", "med": "1W", "high": "1ME"}
-ALL_CLUSTERS = {"C1": _CLUSTER_1, "C2": _CLUSTER_2, "C3": _CLUSTER_3, "C4": _CLUSTER_4}
+ALL_CLUSTERS = {
+    "C1": _CLUSTER_1,
+    "C2": _CLUSTER_2,
+    "C3": _CLUSTER_3,
+    "C4": _CLUSTER_4,
+}
 ALL_TIMEFRAMES = list({tf for c in ALL_CLUSTERS.values() for tf in c.values()})
-
-
-@dataclass(frozen=True)
-class Symbol:
-    name: str
-    source: str  # "binance" or "oanda"
-    source_param: str  # "futures-usdt" | "forex" | "indices" | "commodities"
-
-
-UNIVERSE = [
-    Symbol("BTCUSDT", "binance", "futures-usdt"),
-    Symbol("ETHUSDT", "binance", "futures-usdt"),
-    Symbol("SOLUSDT", "binance", "futures-usdt"),
-    Symbol("EUR_USD", "oanda", "forex"),
-    Symbol("GBP_USD", "oanda", "forex"),
-    Symbol("SPX500_USD", "oanda", "indices"),
-    Symbol("XAU_USD", "oanda", "commodities"),
-    Symbol("XAG_USD", "oanda", "commodities"),
-]
 
 
 @dataclass
