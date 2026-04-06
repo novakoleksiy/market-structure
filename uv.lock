@@ -807,7 +807,6 @@ dependencies = [
     { name = "mplfinance" },
     { name = "numpy" },
     { name = "pandas" },
-    { name = "ruff" },
     { name = "scipy" },
 ]
 
@@ -818,6 +817,7 @@ dev = [
     { name = "plotly" },
     { name = "pytest" },
     { name = "pytest-cov" },
+    { name = "ruff" },
     { name = "yfinance" },
 ]
 
@@ -828,7 +828,6 @@ requires-dist = [
     { name = "mplfinance", specifier = ">=0.12.10b0" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "pandas", specifier = ">=2.1" },
-    { name = "ruff", specifier = ">=0.15.2" },
     { name = "scipy", specifier = ">=1.12" },
 ]
 
@@ -839,6 +838,7 @@ dev = [
     { name = "plotly", specifier = ">=6.5.2" },
     { name = "pytest", specifier = ">=9.0.2" },
     { name = "pytest-cov", specifier = ">=7.0.0" },
+    { name = "ruff", specifier = ">=0.15.2" },
     { name = "yfinance", specifier = ">=1.2.0" },
 ]
 

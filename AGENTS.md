@@ -4,12 +4,15 @@
 
 - Use `uv` for dependency management and commands.
 - Python 3.12 is required.
+- Install project and dev tools with `uv sync --dev`.
 
 ## Commands
 
 - Run the app: `uv run main.py`
 - Run tests: `uv run pytest`
-- Lint / fix imports: `uv run ruff check --fix .`
+- Lint: `uv run ruff check .`
+- Lint and sort imports: `uv run ruff check --fix .`
+- Format: `uv run ruff format .`
 
 ## Repo Layout
 
