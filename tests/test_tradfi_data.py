@@ -8,11 +8,10 @@ import pandas as pd
 import pytest
 
 import tradfi_data
+from data_cache import ParquetCacheAdapter
 from tradfi_data import (
     _cache_path,
-    _read_cache,
     _to_oanda_granularity,
-    _write_cache,
     fetch_klines,
     fetch_klines_full,
     fetch_multi,
@@ -306,32 +305,32 @@ def _make_df(start="2024-01-01", periods=100, freq="5min"):
 
 def test_cache_path():
     p = _cache_path("EUR_USD", "5min", "forex")
-    assert p.parts[-3:] == ("forex", "EUR_USD", "5min.parquet")
+    assert p.parts[-4:] == ("oanda", "forex", "EUR_USD", "5min.parquet")
 
 
 def test_read_cache_missing(tmp_path):
-    assert _read_cache(tmp_path / "nope.parquet") is None
+    assert ParquetCacheAdapter(tmp_path).read("nope") is None
 
 
 def test_read_cache_corrupt(tmp_path):
     bad = tmp_path / "bad.parquet"
     bad.write_bytes(b"not a parquet file")
-    assert _read_cache(bad) is None
+    assert ParquetCacheAdapter(tmp_path).read("bad") is None
     assert not bad.exists()
 
 
 def test_read_cache_wrong_schema(tmp_path):
     wrong = tmp_path / "wrong.parquet"
     pd.DataFrame({"x": [1]}).to_parquet(wrong, engine="fastparquet")
-    assert _read_cache(wrong) is None
+    assert ParquetCacheAdapter(tmp_path).read("wrong") is None
     assert not wrong.exists()
 
 
 def test_write_and_read_roundtrip(tmp_path):
-    path = tmp_path / "test.parquet"
     df = _make_df(periods=10)
-    _write_cache(path, df)
-    loaded = _read_cache(path)
+    cache = ParquetCacheAdapter(tmp_path)
+    cache.write(df, "test")
+    loaded = cache.read("test")
     assert loaded is not None
     pd.testing.assert_frame_equal(loaded, df, check_freq=False)
 
@@ -339,9 +338,9 @@ def test_write_and_read_roundtrip(tmp_path):
 def test_write_cache_atomic_on_error(tmp_path):
     """If to_parquet raises, no partial file is left behind."""
     path = tmp_path / "sub" / "test.parquet"
-    with patch("tradfi_data.pd.DataFrame.to_parquet", side_effect=RuntimeError("boom")):
+    with patch("data_cache.pd.DataFrame.to_parquet", side_effect=RuntimeError("boom")):
         with pytest.raises(RuntimeError):
-            _write_cache(path, _make_df(periods=5))
+            ParquetCacheAdapter(tmp_path).write_path(path, _make_df(periods=5))
     assert not path.exists()
     assert not list(tmp_path.rglob("*.tmp"))
 
@@ -360,7 +359,7 @@ def test_cache_populated_on_first_run(mock_fk, tmp_path, monkeypatch):
         index=idx,
     )
     fetch_klines_full("EUR_USD", "5min", n_bars=50, asset_class="forex", use_cache=True)
-    cache_file = tmp_path / "forex" / "EUR_USD" / "5min.parquet"
+    cache_file = tmp_path / "oanda" / "forex" / "EUR_USD" / "5min.parquet"
     assert cache_file.exists()
 
 
@@ -370,8 +369,8 @@ def test_cache_tail_only_on_second_run(mock_fk, tmp_path, monkeypatch):
 
     # Pre-populate cache with 100 bars
     cached = _make_df("2024-01-01", periods=100, freq="5min")
-    cache_file = tmp_path / "forex" / "EUR_USD" / "5min.parquet"
-    _write_cache(cache_file, cached)
+    cache_file = tmp_path / "oanda" / "forex" / "EUR_USD" / "5min.parquet"
+    ParquetCacheAdapter(tmp_path).write_path(cache_file, cached)
 
     # Tail fetch returns 5 new bars
     tail_idx = pd.date_range("2024-01-01 08:10", periods=5, freq="5min", tz="UTC")
@@ -383,7 +382,7 @@ def test_cache_tail_only_on_second_run(mock_fk, tmp_path, monkeypatch):
     result = fetch_klines_full(
         "EUR_USD",
         "5min",
-        n_bars=200,
+        n_bars=80,
         asset_class="forex",
         closed_only=False,
         use_cache=True,
@@ -394,7 +393,8 @@ def test_cache_tail_only_on_second_run(mock_fk, tmp_path, monkeypatch):
         or call_kwargs[1].get("start_time")
         or (len(call_kwargs[0]) > 2 and call_kwargs[0][2] is not None)
     )
-    assert len(result) > len(cached) - 1
+    assert len(result) == 80
+    assert result.index[-1] == tail_idx[-1]
 
 
 @patch("tradfi_data.fetch_klines")
@@ -408,5 +408,34 @@ def test_use_cache_false_skips_cache(mock_fk, tmp_path, monkeypatch):
     fetch_klines_full(
         "EUR_USD", "5min", n_bars=10, asset_class="forex", use_cache=False
     )
-    cache_file = tmp_path / "forex" / "EUR_USD" / "5min.parquet"
+    cache_file = tmp_path / "oanda" / "forex" / "EUR_USD" / "5min.parquet"
     assert not cache_file.exists()
+
+
+@patch("tradfi_data._fetch_full_no_cache")
+@patch("tradfi_data.fetch_klines")
+def test_cache_backfills_when_request_exceeds_cached_window(
+    mock_fk, mock_full, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(tradfi_data, "_CACHE_DIR", tmp_path)
+
+    cached = _make_df("2024-01-01", periods=100, freq="5min")
+    cache_file = tmp_path / "oanda" / "forex" / "EUR_USD" / "5min.parquet"
+    ParquetCacheAdapter(tmp_path).write_path(cache_file, cached)
+
+    full = _make_df("2023-12-25", periods=300, freq="5min")
+    mock_full.return_value = full
+
+    result = fetch_klines_full(
+        "EUR_USD",
+        "5min",
+        n_bars=300,
+        asset_class="forex",
+        closed_only=False,
+        use_cache=True,
+    )
+
+    mock_full.assert_called_once_with("EUR_USD", "5min", 300, "forex")
+    mock_fk.assert_not_called()
+    assert len(result) == 300
+    assert result.index[0] == full.index[0]
