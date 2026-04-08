@@ -1,51 +1,35 @@
 """Fetch OHLCV kline data from Binance public REST API."""
 
 import json
-import os
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 
 import pandas as pd
+
+from data_cache import DEFAULT_EXPECTED_COLS, ParquetCacheAdapter
 
 # ---------------------------------------------------------------------------
 # Local parquet cache
 # ---------------------------------------------------------------------------
 
 _CACHE_DIR = Path(__file__).resolve().parent / ".cache" / "klines"
-_EXPECTED_COLS = {"open", "high", "low", "close", "volume"}
+_EXPECTED_COLS = DEFAULT_EXPECTED_COLS
 
 
 def _cache_path(symbol: str, interval: str, market: str) -> Path:
-    return _CACHE_DIR / market / symbol / f"{interval}.parquet"
+    return ParquetCacheAdapter(_CACHE_DIR, _EXPECTED_COLS).path_for(
+        market, symbol, interval
+    )
 
 
 def _read_cache(path: Path) -> pd.DataFrame | None:
-    if not path.exists():
-        return None
-    try:
-        df = pd.read_parquet(path, engine="fastparquet")
-        if not _EXPECTED_COLS.issubset(df.columns):
-            path.unlink()
-            return None
-        return df
-    except Exception:
-        path.unlink(missing_ok=True)
-        return None
+    return ParquetCacheAdapter(_CACHE_DIR, _EXPECTED_COLS).read_path(path)
 
 
 def _write_cache(path: Path, df: pd.DataFrame) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with NamedTemporaryFile(dir=path.parent, suffix=".tmp", delete=False) as tmp:
-        tmp_path = tmp.name
-    try:
-        df.to_parquet(tmp_path, engine="fastparquet")
-        os.replace(tmp_path, path)
-    except BaseException:
-        Path(tmp_path).unlink(missing_ok=True)
-        raise
+    ParquetCacheAdapter(_CACHE_DIR, _EXPECTED_COLS).write_path(path, df)
 
 
 def _fetch_tail(
