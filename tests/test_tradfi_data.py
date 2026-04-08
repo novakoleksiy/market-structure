@@ -383,7 +383,7 @@ def test_cache_tail_only_on_second_run(mock_fk, tmp_path, monkeypatch):
     result = fetch_klines_full(
         "EUR_USD",
         "5min",
-        n_bars=200,
+        n_bars=80,
         asset_class="forex",
         closed_only=False,
         use_cache=True,
@@ -394,7 +394,8 @@ def test_cache_tail_only_on_second_run(mock_fk, tmp_path, monkeypatch):
         or call_kwargs[1].get("start_time")
         or (len(call_kwargs[0]) > 2 and call_kwargs[0][2] is not None)
     )
-    assert len(result) > len(cached) - 1
+    assert len(result) == 80
+    assert result.index[-1] == tail_idx[-1]
 
 
 @patch("tradfi_data.fetch_klines")
@@ -410,3 +411,32 @@ def test_use_cache_false_skips_cache(mock_fk, tmp_path, monkeypatch):
     )
     cache_file = tmp_path / "forex" / "EUR_USD" / "5min.parquet"
     assert not cache_file.exists()
+
+
+@patch("tradfi_data._fetch_full_no_cache")
+@patch("tradfi_data.fetch_klines")
+def test_cache_backfills_when_request_exceeds_cached_window(
+    mock_fk, mock_full, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(tradfi_data, "_CACHE_DIR", tmp_path)
+
+    cached = _make_df("2024-01-01", periods=100, freq="5min")
+    cache_file = tmp_path / "forex" / "EUR_USD" / "5min.parquet"
+    _write_cache(cache_file, cached)
+
+    full = _make_df("2023-12-25", periods=300, freq="5min")
+    mock_full.return_value = full
+
+    result = fetch_klines_full(
+        "EUR_USD",
+        "5min",
+        n_bars=300,
+        asset_class="forex",
+        closed_only=False,
+        use_cache=True,
+    )
+
+    mock_full.assert_called_once_with("EUR_USD", "5min", 300, "forex")
+    mock_fk.assert_not_called()
+    assert len(result) == 300
+    assert result.index[0] == full.index[0]

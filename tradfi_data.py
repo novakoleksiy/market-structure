@@ -333,12 +333,14 @@ def fetch_klines_full(
     if cached is not None and not cached.empty:
         # Drop last cached row — it may have been an incomplete candle.
         cached = cached.iloc[:-1]
-        if not cached.empty:
+        if len(cached) >= n_bars:
             fetch_start = cached.index[-1].to_pydatetime()
             tail = _fetch_tail(symbol, interval, asset_class, start_time=fetch_start)
             result = pd.concat([cached, tail]).sort_index()
             result = result[~result.index.duplicated(keep="last")]
         else:
+            # Cache only covers a smaller window than requested, so tail-only
+            # refresh cannot recover the missing older bars.
             result = _fetch_full_no_cache(symbol, interval, n_bars, asset_class)
     else:
         result = _fetch_full_no_cache(symbol, interval, n_bars, asset_class)
