@@ -1,23 +1,16 @@
-from pathlib import Path
-
 import pytest
 
 from universe import INSTRUMENT_SPECS, UNIVERSE, InstrumentSpec, Symbol, build_universe
 
 
-def _reference_names_from_file() -> list[str]:
-    path = Path(__file__).resolve().parent.parent / "instruments.txt"
-    return [
-        line.strip()
-        for line in path.read_text().splitlines()
-        if line.strip() and not line.lstrip().startswith("#")
-    ]
+def test_instrument_specs_are_unique_and_enabled_specs_are_resolved():
+    assert len(INSTRUMENT_SPECS) == len(
+        {spec.reference_name for spec in INSTRUMENT_SPECS}
+    )
 
-
-def test_instrument_specs_cover_reference_file():
-    assert [
-        spec.reference_name for spec in INSTRUMENT_SPECS
-    ] == _reference_names_from_file()
+    enabled_specs = [spec for spec in INSTRUMENT_SPECS if spec.enabled]
+    assert enabled_specs
+    assert all(spec.provider_symbol for spec in enabled_specs)
 
 
 def test_build_universe_returns_enabled_symbols_only():
