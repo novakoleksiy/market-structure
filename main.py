@@ -1,6 +1,5 @@
 """Entry point: multi-source signal generator across Binance & OANDA."""
 
-import argparse
 from dataclasses import dataclass
 from datetime import datetime
 from itertools import groupby
@@ -9,7 +8,6 @@ import pandas as pd
 
 import binance_data
 import tradfi_data
-from chart import plot_market_structure
 from ms_engine import compute_cluster_signals, get_mtf_trend
 from universe import UNIVERSE, Symbol
 
@@ -76,7 +74,7 @@ def run_cluster(
     df_h: pd.DataFrame,
     cluster: dict | None = None,
     pivot_length: int = PIVOT_LENGTH,
-    show_length: int = 500,
+    show_length: int | None = None,
 ):
     """Compute trends and cluster signals from pre-fetched data."""
     cluster = cluster or _CLUSTER_1
@@ -88,6 +86,8 @@ def run_cluster(
     longs, shorts = compute_cluster_signals(
         trend_h.values, trend_m.values, trend_l.values
     )
+    if show_length is None:
+        return df, longs, shorts
     return df[-show_length:], longs[-show_length:], shorts[-show_length:]
 
 
@@ -97,11 +97,17 @@ def run_cluster(
 def generate_signals(
     universe: list[Symbol] | None = None,
     n_bars: int = 2000,
-    show_length: int = 500,
+    show_length: int | None = None,
 ) -> list[Signal]:
-    """Run all clusters on all symbols and return structured signals."""
+    """Run all clusters on all symbols and return structured signals.
+
+    `n_bars` controls the output history per cluster. An additional warmup buffer is
+    fetched so the market-structure state is initialized before the output window.
+    `show_length` can be used to override the output window explicitly.
+    """
     universe = universe or UNIVERSE
-    data = fetch_all(universe, n_bars=n_bars)
+    output_length = n_bars if show_length is None else show_length
+    data = fetch_all(universe, n_bars=n_bars + WARMUP_BARS)
     signals: list[Signal] = []
 
     for sym in universe:
@@ -115,7 +121,7 @@ def generate_signals(
                 df_m=df_m,
                 df_h=df_h,
                 cluster=cluster,
-                show_length=show_length,
+                show_length=output_length,
             )
 
             for i in range(len(df)):
@@ -132,10 +138,6 @@ def generate_signals(
 # -- Entry point ------------------------------------------------------------
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Market structure signal generator")
-    parser.add_argument("--chart", action="store_true", help="Show Plotly charts")
-    args = parser.parse_args()
-
     signals = generate_signals()
 
     for sig in signals:
@@ -144,17 +146,3 @@ if __name__ == "__main__":
             f"@ {sig.price:.5f}  ({sig.timestamp})"
         )
     print(f"\n{len(signals)} signals total")
-
-    if args.chart:
-        data = fetch_all(UNIVERSE)
-        cluster = _CLUSTER_1
-        for sym in UNIVERSE:
-            df, longs, shorts = run_cluster(
-                df=data[(sym.name, cluster["low"])],
-                df_m=data[(sym.name, cluster["med"])],
-                df_h=data[(sym.name, cluster["high"])],
-                cluster=cluster,
-                show_length=500,
-            )
-            fig = plot_market_structure(df, longs=longs, shorts=shorts)
-            fig.show()
