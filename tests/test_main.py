@@ -1,6 +1,7 @@
 import pandas as pd
 
 import main
+import signal_engine
 from universe import Symbol
 
 
@@ -28,8 +29,8 @@ def test_generate_signals_uses_requested_output_window(monkeypatch):
         shorts = pd.Series([False, False, False]).to_numpy(dtype=bool)
         return df, longs, shorts
 
-    monkeypatch.setattr(main, "fetch_all", fake_fetch_all)
-    monkeypatch.setattr(main, "run_cluster", fake_run_cluster)
+    monkeypatch.setattr(signal_engine, "fetch_all", fake_fetch_all)
+    monkeypatch.setattr(signal_engine, "run_cluster", fake_run_cluster)
 
     signals = main.generate_signals(universe=[symbol], n_bars=123)
 
@@ -60,8 +61,8 @@ def test_generate_signals_honors_explicit_show_length(monkeypatch):
         shorts = pd.Series([False, True]).to_numpy(dtype=bool)
         return df, longs, shorts
 
-    monkeypatch.setattr(main, "fetch_all", fake_fetch_all)
-    monkeypatch.setattr(main, "run_cluster", fake_run_cluster)
+    monkeypatch.setattr(signal_engine, "fetch_all", fake_fetch_all)
+    monkeypatch.setattr(signal_engine, "run_cluster", fake_run_cluster)
 
     signals = main.generate_signals(universe=[symbol], n_bars=123, show_length=7)
 
