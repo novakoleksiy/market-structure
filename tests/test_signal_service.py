@@ -84,6 +84,39 @@ def test_persist_scheduled_signals_retries_until_bar_processed(tmp_path):
     assert third == []
 
 
+def test_persist_scheduled_signals_does_not_backfill_without_state(tmp_path):
+    store = SignalStore(Path(tmp_path) / "signals.sqlite3")
+    old_bar = pd.Timestamp("2024-01-01T09:30:00Z").to_pydatetime()
+    latest_bar = pd.Timestamp("2024-01-01T10:00:00Z").to_pydatetime()
+    old_signal = Signal("BTCUSDT", "C1", "long", old_bar, 100.0, "binance")
+    latest_signal = Signal("BTCUSDT", "C1", "short", latest_bar, 99.0, "binance")
+    result = ScheduledRunResult(
+        "binance", "C1", {"BTCUSDT": latest_bar}, [old_signal, latest_signal]
+    )
+
+    pending = persist_scheduled_signals(result, store)
+
+    assert pending == [latest_signal]
+
+
+def test_persist_scheduled_signals_catches_skipped_bars(tmp_path):
+    store = SignalStore(Path(tmp_path) / "signals.sqlite3")
+    previous_bar = pd.Timestamp("2024-01-01T09:00:00Z").to_pydatetime()
+    skipped_bar = pd.Timestamp("2024-01-01T09:30:00Z").to_pydatetime()
+    latest_bar = pd.Timestamp("2024-01-01T10:00:00Z").to_pydatetime()
+    signal = Signal("BTCUSDT", "C1", "long", skipped_bar, 100.0, "binance")
+
+    store.set_last_bar_ts("binance", "BTCUSDT", "C1", previous_bar)
+    result = ScheduledRunResult("binance", "C1", {"BTCUSDT": latest_bar}, [signal])
+
+    pending = persist_scheduled_signals(result, store)
+    mark_scheduled_run_processed(result, store)
+    duplicate = persist_scheduled_signals(result, store)
+
+    assert pending == [signal]
+    assert duplicate == []
+
+
 def test_persist_scheduled_signals_tracks_progress_per_symbol(tmp_path):
     store = SignalStore(Path(tmp_path) / "signals.sqlite3")
     fast_bar = pd.Timestamp("2024-01-01T10:00:00Z").to_pydatetime()
@@ -167,8 +200,8 @@ def test_run_scheduled_cluster_persists_only_new_latest_bar(monkeypatch, tmp_pat
     assert first[0].symbol == symbol.name
     assert second == []
     assert captured == [
-        ("oanda", "C4", [symbol], 99, True, False),
-        ("oanda", "C4", [symbol], 99, True, False),
+        ("oanda", "C4", [symbol], 99, False, False),
+        ("oanda", "C4", [symbol], 99, False, False),
     ]
     assert notify_calls == [([first[0]], "oanda", "C4"), ([], "oanda", "C4")]
 
@@ -190,7 +223,9 @@ def test_run_scheduled_cluster_retries_notification_before_advancing_state(
         latest_only=True,
         use_cache=True,
     ):
-        return ScheduledRunResult(source, cluster_name, {symbol.name: latest_bar}, [signal])
+        return ScheduledRunResult(
+            source, cluster_name, {symbol.name: latest_bar}, [signal]
+        )
 
     monkeypatch.setattr(
         main, "generate_source_cluster_signals", fake_generate_source_cluster_signals

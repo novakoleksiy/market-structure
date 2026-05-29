@@ -152,9 +152,10 @@ def persist_scheduled_signals(
     """Persist scheduled signals for a source+cluster run."""
     pending: list[Signal] = []
     for signal in result.signals:
-        last_bar = store.get_last_bar_ts(
-            signal.source, signal.symbol, signal.cluster
-        )
+        latest_bar = result.latest_bars.get(signal.symbol)
+        last_bar = store.get_last_bar_ts(signal.source, signal.symbol, signal.cluster)
+        if last_bar is None and signal.timestamp != latest_bar:
+            continue
         if last_bar is not None and last_bar >= signal.timestamp:
             continue
         store.insert_signal(

@@ -37,7 +37,7 @@ def run_scheduled_cluster(
         cluster_name,
         universe=universe,
         n_bars=n_bars,
-        latest_only=True,
+        latest_only=False,
         use_cache=use_cache,
     )
     store = SignalStore(db_path)
@@ -55,7 +55,9 @@ def latest_signals_per_combo(signals: list[Signal]) -> list[Signal]:
         current = latest.get(key)
         if current is None or signal.timestamp > current.timestamp:
             latest[key] = signal
-    return sorted(latest.values(), key=lambda sig: (sig.source, sig.symbol, sig.cluster))
+    return sorted(
+        latest.values(), key=lambda sig: (sig.source, sig.symbol, sig.cluster)
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
