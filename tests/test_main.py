@@ -1,7 +1,10 @@
+from datetime import UTC, datetime
+
 import pandas as pd
 
 import main
 import signal_engine
+from signal_engine import Signal
 from universe import Symbol
 
 
@@ -68,3 +71,39 @@ def test_generate_signals_honors_explicit_show_length(monkeypatch):
 
     assert show_lengths == [7] * len(main.ALL_CLUSTERS)
     assert len(signals) == len(main.ALL_CLUSTERS)
+
+
+def test_latest_signals_per_combo_keeps_newest_signal():
+    signals = [
+        Signal(
+            "BTCUSDT",
+            "C1",
+            "long",
+            datetime(2024, 1, 1, 0, 0, tzinfo=UTC),
+            100.0,
+            "binance",
+        ),
+        Signal(
+            "BTCUSDT",
+            "C1",
+            "short",
+            datetime(2024, 1, 2, 0, 0, tzinfo=UTC),
+            99.0,
+            "binance",
+        ),
+        Signal(
+            "BTCUSDT",
+            "C2",
+            "long",
+            datetime(2024, 1, 1, 12, 0, tzinfo=UTC),
+            101.0,
+            "binance",
+        ),
+    ]
+
+    latest = main.latest_signals_per_combo(signals)
+
+    assert [(sig.symbol, sig.cluster, sig.direction) for sig in latest] == [
+        ("BTCUSDT", "C1", "short"),
+        ("BTCUSDT", "C2", "long"),
+    ]

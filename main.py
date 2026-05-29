@@ -4,9 +4,14 @@ import argparse
 from pathlib import Path
 
 import signal_engine
+import telegram_notifier
 from clusters import ALL_CLUSTERS
 from signal_engine import Signal, generate_signals
-from signal_service import generate_source_cluster_signals, persist_scheduled_signals
+from signal_service import (
+    generate_source_cluster_signals,
+    mark_scheduled_run_processed,
+    persist_scheduled_signals,
+)
 from signal_store import SignalStore
 from universe import Symbol
 
@@ -36,7 +41,21 @@ def run_scheduled_cluster(
         use_cache=use_cache,
     )
     store = SignalStore(db_path)
-    return persist_scheduled_signals(result, store)
+    signals = persist_scheduled_signals(result, store)
+    telegram_notifier.notify_new_signals(signals, source, cluster_name)
+    mark_scheduled_run_processed(result, store)
+    return signals
+
+
+def latest_signals_per_combo(signals: list[Signal]) -> list[Signal]:
+    """Return the newest signal for each source+symbol+cluster combination."""
+    latest: dict[tuple[str, str, str], Signal] = {}
+    for signal in signals:
+        key = (signal.source, signal.symbol, signal.cluster)
+        current = latest.get(key)
+        if current is None or signal.timestamp > current.timestamp:
+            latest[key] = signal
+    return sorted(latest.values(), key=lambda sig: (sig.source, sig.symbol, sig.cluster))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -84,13 +103,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\n{len(signals)} new signals persisted")
         return 0
 
-    signals = generate_signals()
+    signals = latest_signals_per_combo(generate_signals(n_bars=3000))
     for sig in signals:
         print(
-            f"[{sig.cluster}] {sig.direction.upper():5s} {sig.symbol:12s} "
+            f"[{sig.source}:{sig.cluster}] {sig.direction.upper():5s} {sig.symbol:12s} "
             f"@ {sig.price:.5f}  ({sig.timestamp})"
         )
-    print(f"\n{len(signals)} signals total")
+    print(f"\n{len(signals)} latest signals total")
     return 0
 
 

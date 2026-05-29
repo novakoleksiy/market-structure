@@ -1,11 +1,13 @@
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from signal_engine import Signal
 from signal_service import (
     ScheduledRunResult,
     fetch_source_cluster_data,
+    mark_scheduled_run_processed,
     persist_scheduled_signals,
 )
 from signal_store import SignalStore
@@ -59,10 +61,27 @@ def test_persist_scheduled_signals_suppresses_duplicate_bar(tmp_path):
     result = ScheduledRunResult("binance", "C3", bar_ts, [signal])
 
     first = persist_scheduled_signals(result, store)
+    mark_scheduled_run_processed(result, store)
     second = persist_scheduled_signals(result, store)
 
     assert first == [signal]
     assert second == []
+
+
+def test_persist_scheduled_signals_retries_until_bar_processed(tmp_path):
+    store = SignalStore(Path(tmp_path) / "signals.sqlite3")
+    bar_ts = pd.Timestamp("2024-01-01T04:00:00Z").to_pydatetime()
+    signal = Signal("BTCUSDT", "C3", "long", bar_ts, 123.45, "binance")
+    result = ScheduledRunResult("binance", "C3", bar_ts, [signal])
+
+    first = persist_scheduled_signals(result, store)
+    second = persist_scheduled_signals(result, store)
+    mark_scheduled_run_processed(result, store)
+    third = persist_scheduled_signals(result, store)
+
+    assert first == [signal]
+    assert second == [signal]
+    assert third == []
 
 
 def test_run_scheduled_cluster_persists_only_new_latest_bar(monkeypatch, tmp_path):
@@ -93,6 +112,14 @@ def test_run_scheduled_cluster_persists_only_new_latest_bar(monkeypatch, tmp_pat
     monkeypatch.setattr(
         main, "generate_source_cluster_signals", fake_generate_source_cluster_signals
     )
+    notify_calls: list[tuple[list[Signal], str, str]] = []
+
+    def fake_notify_new_signals(signals, source, cluster):
+        notify_calls.append((signals, source, cluster))
+
+    monkeypatch.setattr(
+        main.telegram_notifier, "notify_new_signals", fake_notify_new_signals
+    )
 
     first = main.run_scheduled_cluster(
         "oanda",
@@ -117,3 +144,64 @@ def test_run_scheduled_cluster_persists_only_new_latest_bar(monkeypatch, tmp_pat
         ("oanda", "C4", [symbol], 99, True, False),
         ("oanda", "C4", [symbol], 99, True, False),
     ]
+    assert notify_calls == [([first[0]], "oanda", "C4"), ([], "oanda", "C4")]
+
+
+def test_run_scheduled_cluster_retries_notification_before_advancing_state(
+    monkeypatch, tmp_path
+):
+    import main
+
+    symbol = Symbol("EUR_USD", "oanda", "forex")
+    latest_bar = pd.Timestamp("2024-01-02T00:00:00Z").to_pydatetime()
+    signal = Signal(symbol.name, "C4", "short", latest_bar, 1.2345, "oanda")
+
+    def fake_generate_source_cluster_signals(
+        source,
+        cluster_name,
+        universe=None,
+        n_bars=2000,
+        latest_only=True,
+        use_cache=True,
+    ):
+        return ScheduledRunResult(source, cluster_name, latest_bar, [signal])
+
+    monkeypatch.setattr(
+        main, "generate_source_cluster_signals", fake_generate_source_cluster_signals
+    )
+    notify_calls: list[list[Signal]] = []
+
+    def fake_notify_new_signals(signals, source, cluster):
+        notify_calls.append(signals)
+        if len(notify_calls) == 1:
+            raise RuntimeError("telegram unavailable")
+
+    monkeypatch.setattr(
+        main.telegram_notifier, "notify_new_signals", fake_notify_new_signals
+    )
+
+    db_path = Path(tmp_path) / "signals.sqlite3"
+    with pytest.raises(RuntimeError, match="telegram unavailable"):
+        main.run_scheduled_cluster(
+            "oanda",
+            "C4",
+            universe=[symbol],
+            db_path=db_path,
+        )
+
+    retry = main.run_scheduled_cluster(
+        "oanda",
+        "C4",
+        universe=[symbol],
+        db_path=db_path,
+    )
+    duplicate = main.run_scheduled_cluster(
+        "oanda",
+        "C4",
+        universe=[symbol],
+        db_path=db_path,
+    )
+
+    assert retry == [signal]
+    assert duplicate == []
+    assert notify_calls == [[signal], [signal], []]

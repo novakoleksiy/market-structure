@@ -146,7 +146,7 @@ def generate_source_cluster_signals(
 def persist_scheduled_signals(
     result: ScheduledRunResult, store: SignalStore
 ) -> list[Signal]:
-    """Persist scheduled signals and update source+cluster progress."""
+    """Persist scheduled signals for a source+cluster run."""
     if result.latest_bar is None:
         return []
 
@@ -154,9 +154,8 @@ def persist_scheduled_signals(
     if last_bar is not None and last_bar >= result.latest_bar:
         return []
 
-    persisted: list[Signal] = []
     for signal in result.signals:
-        inserted = store.insert_signal(
+        store.insert_signal(
             StoredSignal(
                 source=signal.source,
                 symbol=signal.symbol,
@@ -166,8 +165,14 @@ def persist_scheduled_signals(
                 price=signal.price,
             )
         )
-        if inserted:
-            persisted.append(signal)
 
+    return list(result.signals)
+
+
+def mark_scheduled_run_processed(
+    result: ScheduledRunResult, store: SignalStore
+) -> None:
+    """Advance source+cluster progress after downstream side effects succeed."""
+    if result.latest_bar is None:
+        return
     store.set_last_bar_ts(result.source, result.cluster, result.latest_bar)
-    return persisted
