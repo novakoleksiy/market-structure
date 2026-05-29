@@ -17,8 +17,15 @@ from universe import UNIVERSE, Symbol
 class ScheduledRunResult:
     source: str
     cluster: str
-    latest_bar: datetime | None
+    latest_bars: dict[str, datetime]
     signals: list[Signal]
+
+    @property
+    def latest_bar(self) -> datetime | None:
+        """Return the newest bar across all symbols for summary purposes."""
+        if not self.latest_bars:
+            return None
+        return max(self.latest_bars.values())
 
 
 def filter_universe_by_source(
@@ -104,7 +111,7 @@ def generate_source_cluster_signals(
     )
 
     signals: list[Signal] = []
-    latest_bar: datetime | None = None
+    latest_bars: dict[str, datetime] = {}
 
     for sym in syms:
         df_l = data[(sym.name, cluster["low"])]
@@ -122,11 +129,7 @@ def generate_source_cluster_signals(
             continue
 
         row_indexes = [len(df) - 1] if latest_only else range(len(df))
-        latest_bar = (
-            max(latest_bar, df.index[-1].to_pydatetime())
-            if latest_bar
-            else df.index[-1].to_pydatetime()
-        )
+        latest_bars[sym.name] = df.index[-1].to_pydatetime()
 
         for i in row_indexes:
             ts = df.index[i].to_pydatetime()
@@ -140,21 +143,20 @@ def generate_source_cluster_signals(
                     Signal(sym.name, cluster_name, "short", ts, price, source)
                 )
 
-    return ScheduledRunResult(source, cluster_name, latest_bar, signals)
+    return ScheduledRunResult(source, cluster_name, latest_bars, signals)
 
 
 def persist_scheduled_signals(
     result: ScheduledRunResult, store: SignalStore
 ) -> list[Signal]:
     """Persist scheduled signals for a source+cluster run."""
-    if result.latest_bar is None:
-        return []
-
-    last_bar = store.get_last_bar_ts(result.source, result.cluster)
-    if last_bar is not None and last_bar >= result.latest_bar:
-        return []
-
+    pending: list[Signal] = []
     for signal in result.signals:
+        last_bar = store.get_last_bar_ts(
+            signal.source, signal.symbol, signal.cluster
+        )
+        if last_bar is not None and last_bar >= signal.timestamp:
+            continue
         store.insert_signal(
             StoredSignal(
                 source=signal.source,
@@ -165,14 +167,14 @@ def persist_scheduled_signals(
                 price=signal.price,
             )
         )
+        pending.append(signal)
 
-    return list(result.signals)
+    return pending
 
 
 def mark_scheduled_run_processed(
     result: ScheduledRunResult, store: SignalStore
 ) -> None:
     """Advance source+cluster progress after downstream side effects succeed."""
-    if result.latest_bar is None:
-        return
-    store.set_last_bar_ts(result.source, result.cluster, result.latest_bar)
+    for symbol, latest_bar in result.latest_bars.items():
+        store.set_last_bar_ts(result.source, symbol, result.cluster, latest_bar)

@@ -49,37 +49,65 @@ class SignalStore:
                 """
                 CREATE TABLE IF NOT EXISTS job_state (
                     source TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
                     cluster TEXT NOT NULL,
                     last_bar_ts TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
-                    PRIMARY KEY (source, cluster)
+                    PRIMARY KEY (source, symbol, cluster)
                 )
                 """
             )
+            columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(job_state)").fetchall()
+            }
+            if columns and "symbol" not in columns:
+                legacy_suffix = datetime.now(UTC).strftime("%Y%m%d%H%M%S%f")
+                legacy_name = f"job_state_legacy_{legacy_suffix}"
+                conn.execute(f"ALTER TABLE job_state RENAME TO {legacy_name}")
+                conn.execute(
+                    """
+                    CREATE TABLE job_state (
+                        source TEXT NOT NULL,
+                        symbol TEXT NOT NULL,
+                        cluster TEXT NOT NULL,
+                        last_bar_ts TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        PRIMARY KEY (source, symbol, cluster)
+                    )
+                    """
+                )
 
-    def get_last_bar_ts(self, source: str, cluster: str) -> datetime | None:
+    def get_last_bar_ts(
+        self, source: str, symbol: str, cluster: str
+    ) -> datetime | None:
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT last_bar_ts FROM job_state WHERE source = ? AND cluster = ?",
-                (source, cluster),
+                """
+                SELECT last_bar_ts FROM job_state
+                WHERE source = ? AND symbol = ? AND cluster = ?
+                """,
+                (source, symbol, cluster),
             ).fetchone()
         if row is None:
             return None
         return datetime.fromisoformat(row["last_bar_ts"])
 
-    def set_last_bar_ts(self, source: str, cluster: str, timestamp: datetime) -> None:
+    def set_last_bar_ts(
+        self, source: str, symbol: str, cluster: str, timestamp: datetime
+    ) -> None:
         ts = timestamp.astimezone(UTC).isoformat()
         now = datetime.now(UTC).isoformat()
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO job_state (source, cluster, last_bar_ts, updated_at)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(source, cluster)
+                INSERT INTO job_state (source, symbol, cluster, last_bar_ts, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(source, symbol, cluster)
                 DO UPDATE SET last_bar_ts = excluded.last_bar_ts,
                               updated_at = excluded.updated_at
                 """,
-                (source, cluster, ts, now),
+                (source, symbol, cluster, ts, now),
             )
 
     def insert_signal(self, signal: StoredSignal) -> bool:
