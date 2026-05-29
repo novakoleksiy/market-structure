@@ -10,6 +10,7 @@ Multi-market market-structure signal generation across Binance and OANDA data.
 ## Commands
 
 - Run the app: `uv run main.py`
+- Run a scheduled source+cluster job and send Telegram alerts for newly persisted signals: `uv run main.py run-source-cluster --source oanda --cluster C1 --db-path .cache/signals.sqlite3`
 - Run tests: `uv run pytest`
 - Lint: `uv run ruff check .`
 - Lint and sort imports: `uv run ruff check --fix .`
@@ -22,3 +23,4 @@ Multi-market market-structure signal generation across Binance and OANDA data.
 - `binance_data.py` fetches Binance data.
 - `tradfi_data.py` fetches OANDA data for forex, indices, and commodities.
 - Set `OANDA_API` in `.env` or the environment for OANDA-backed fetches.
+- Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in `.env` or the environment to enable scheduled signal alerts.
