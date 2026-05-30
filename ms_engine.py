@@ -215,6 +215,40 @@ def _advance_short(cs: ClusterState, t_h: int, t_m: int, t_l: int) -> None:
             cs.l_dip_s = True
 
 
+def _long_signal_ready(
+    cs: ClusterState,
+    t_h: int,
+    t_l: int,
+    t_l_prev: int,
+) -> bool:
+    """Return True when the long setup has completed on this bar."""
+    return (
+        t_h == 1
+        and cs.m_rec
+        and cs.l_dip
+        and t_l == 1
+        and t_l_prev == -1
+        and not cs.fired
+    )
+
+
+def _short_signal_ready(
+    cs: ClusterState,
+    t_h: int,
+    t_l: int,
+    t_l_prev: int,
+) -> bool:
+    """Return True when the short setup has completed on this bar."""
+    return (
+        t_h == -1
+        and cs.m_rec_s
+        and cs.l_dip_s
+        and t_l == -1
+        and t_l_prev == 1
+        and not cs.fired_s
+    )
+
+
 def compute_cluster_signals(
     trend_h: np.ndarray,
     trend_m: np.ndarray,
@@ -230,35 +264,15 @@ def compute_cluster_signals(
         t_h, t_m, t_l = int(trend_h[i]), int(trend_m[i]), int(trend_l[i])
         t_l_prev = int(trend_l[i - 1])
 
-        # Resets
         _reset_long(cs, t_h, t_m)
         _reset_short(cs, t_h, t_m)
-
-        # Advance setups
         _advance_long(cs, t_h, t_m, t_l)
         _advance_short(cs, t_h, t_m, t_l)
 
-        # Check long signal
-        if (
-            t_h == 1
-            and cs.m_rec
-            and cs.l_dip
-            and t_l == 1
-            and t_l_prev == -1
-            and not cs.fired
-        ):
+        if _long_signal_ready(cs, t_h, t_l, t_l_prev):
             longs[i] = True
             cs.fired = True
-
-        # Check short signal
-        if (
-            t_h == -1
-            and cs.m_rec_s
-            and cs.l_dip_s
-            and t_l == -1
-            and t_l_prev == 1
-            and not cs.fired_s
-        ):
+        if _short_signal_ready(cs, t_h, t_l, t_l_prev):
             shorts[i] = True
             cs.fired_s = True
 

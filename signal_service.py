@@ -8,7 +8,13 @@ import pandas as pd
 import binance_data
 import tradfi_data
 from clusters import get_cluster
-from signal_engine import WARMUP_BARS, Signal, run_cluster
+from signal_engine import (
+    WARMUP_BARS,
+    Signal,
+    cluster_frames,
+    run_cluster,
+    signals_from_cluster_output,
+)
 from signal_store import SignalStore, StoredSignal
 from universe import UNIVERSE, Symbol
 
@@ -39,41 +45,21 @@ def filter_universe_by_source(
     return filtered
 
 
-def fetch_source_cluster_data(
+def _cluster_tasks(
+    syms: list[Symbol], cluster: dict[str, str]
+) -> list[tuple[str, str]]:
+    """Return the exact symbol/timeframe requests needed for one cluster."""
+    return [(sym.name, tf) for sym in syms for tf in cluster.values()]
+
+
+def _fetch_multi_for_source(
     source: str,
-    cluster_name: str,
-    universe: list[Symbol] | None = None,
-    n_bars: int = 2000,
-    use_cache: bool = True,
+    tasks: list[tuple[str, str]],
+    n_bars: int,
+    source_param: str,
+    use_cache: bool,
 ) -> dict[tuple[str, str], pd.DataFrame]:
-    """Fetch only the timeframes needed for one source+cluster job."""
-    syms = filter_universe_by_source(source, universe)
-    cluster = get_cluster(cluster_name)
-    tasks = [(sym.name, tf) for sym in syms for tf in cluster.values()]
-
-    source_param = syms[0].source_param
-    if any(sym.source_param != source_param for sym in syms):
-        data: dict[tuple[str, str], pd.DataFrame] = {}
-        for asset_group in sorted({sym.source_param for sym in syms}):
-            group = [sym for sym in syms if sym.source_param == asset_group]
-            group_tasks = [(sym.name, tf) for sym in group for tf in cluster.values()]
-            if source == "binance":
-                fetched = binance_data.fetch_multi(
-                    group_tasks,
-                    n_bars=n_bars,
-                    market=asset_group,
-                    use_cache=use_cache,
-                )
-            else:
-                fetched = tradfi_data.fetch_multi(
-                    group_tasks,
-                    n_bars=n_bars,
-                    asset_class=asset_group,
-                    use_cache=use_cache,
-                )
-            data.update(fetched)
-        return data
-
+    """Fetch one provider/source-param group with the provider-specific client."""
     if source == "binance":
         return binance_data.fetch_multi(
             tasks,
@@ -89,6 +75,78 @@ def fetch_source_cluster_data(
             use_cache=use_cache,
         )
     raise ValueError(f"Unknown source '{source}'. Choose from: ['binance', 'oanda']")
+
+
+def _fetch_source_param_group(
+    source: str,
+    syms: list[Symbol],
+    cluster: dict[str, str],
+    n_bars: int,
+    use_cache: bool,
+) -> dict[tuple[str, str], pd.DataFrame]:
+    """Fetch candles for symbols that share the same provider market bucket."""
+    source_param = syms[0].source_param
+    return _fetch_multi_for_source(
+        source,
+        _cluster_tasks(syms, cluster),
+        n_bars,
+        source_param,
+        use_cache,
+    )
+
+
+def fetch_source_cluster_data(
+    source: str,
+    cluster_name: str,
+    universe: list[Symbol] | None = None,
+    n_bars: int = 2000,
+    use_cache: bool = True,
+) -> dict[tuple[str, str], pd.DataFrame]:
+    """Fetch only the timeframes needed for one source+cluster job."""
+    syms = filter_universe_by_source(source, universe)
+    cluster = get_cluster(cluster_name)
+
+    data: dict[tuple[str, str], pd.DataFrame] = {}
+    for source_param in sorted({sym.source_param for sym in syms}):
+        group = [sym for sym in syms if sym.source_param == source_param]
+        data.update(
+            _fetch_source_param_group(source, group, cluster, n_bars, use_cache)
+        )
+    return data
+
+
+def _run_scheduled_symbol(
+    sym: Symbol,
+    source: str,
+    cluster_name: str,
+    cluster: dict[str, str],
+    data: dict[tuple[str, str], pd.DataFrame],
+    n_bars: int,
+    latest_only: bool,
+) -> tuple[datetime | None, list[Signal]]:
+    """Run one scheduled symbol and return its latest bar plus emitted signals."""
+    df_l, df_m, df_h = cluster_frames(data, sym.name, cluster)
+    df, longs, shorts = run_cluster(
+        df=df_l,
+        df_m=df_m,
+        df_h=df_h,
+        cluster=cluster,
+        show_length=1 if latest_only else n_bars,
+    )
+    if df.empty:
+        return None, []
+
+    row_indexes = [len(df) - 1] if latest_only else range(len(df))
+    signals = signals_from_cluster_output(
+        sym.name,
+        source,
+        cluster_name,
+        df,
+        longs,
+        shorts,
+        row_indexes=row_indexes,
+    )
+    return df.index[-1].to_pydatetime(), signals
 
 
 def generate_source_cluster_signals(
@@ -114,34 +172,19 @@ def generate_source_cluster_signals(
     latest_bars: dict[str, datetime] = {}
 
     for sym in syms:
-        df_l = data[(sym.name, cluster["low"])]
-        df_m = data[(sym.name, cluster["med"])]
-        df_h = data[(sym.name, cluster["high"])]
-
-        df, longs, shorts = run_cluster(
-            df=df_l,
-            df_m=df_m,
-            df_h=df_h,
-            cluster=cluster,
-            show_length=1 if latest_only else n_bars,
+        latest_bar, symbol_signals = _run_scheduled_symbol(
+            sym,
+            source,
+            cluster_name,
+            cluster,
+            data,
+            n_bars,
+            latest_only,
         )
-        if df.empty:
+        if latest_bar is None:
             continue
-
-        row_indexes = [len(df) - 1] if latest_only else range(len(df))
-        latest_bars[sym.name] = df.index[-1].to_pydatetime()
-
-        for i in row_indexes:
-            ts = df.index[i].to_pydatetime()
-            price = float(df["close"].iloc[i])
-            if longs[i]:
-                signals.append(
-                    Signal(sym.name, cluster_name, "long", ts, price, source)
-                )
-            if shorts[i]:
-                signals.append(
-                    Signal(sym.name, cluster_name, "short", ts, price, source)
-                )
+        latest_bars[sym.name] = latest_bar
+        signals.extend(symbol_signals)
 
     return ScheduledRunResult(source, cluster_name, latest_bars, signals)
 
