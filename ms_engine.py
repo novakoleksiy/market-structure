@@ -117,6 +117,47 @@ def compute_market_structure(
 
 
 # ---------------------------------------------------------------------------
+# Volatility (ATR)
+# ---------------------------------------------------------------------------
+
+
+def compute_atr(
+    highs: np.ndarray,
+    lows: np.ndarray,
+    closes: np.ndarray,
+    period: int = 14,
+) -> np.ndarray:
+    """Return Wilder's Average True Range per bar.
+
+    True range = max(high - low, |high - prev_close|, |low - prev_close|).
+    Smoothed with Wilder's RMA (the classic ATR).  The first ``period`` values
+    are ``nan`` (insufficient history); ATR becomes available from bar
+    ``period`` onward.  Output is aligned to the input bars.
+    """
+    n = len(closes)
+    atr = np.full(n, np.nan)
+    if n <= period:
+        return atr
+
+    prev_close = np.empty(n)
+    prev_close[0] = np.nan
+    prev_close[1:] = closes[:-1]
+
+    tr = np.maximum(
+        highs - lows,
+        np.maximum(np.abs(highs - prev_close), np.abs(lows - prev_close)),
+    )
+    tr[0] = highs[0] - lows[0]  # no previous close on the first bar
+
+    # Seed with the simple average of the first `period` true ranges, then
+    # apply Wilder's recursive smoothing.
+    atr[period] = np.mean(tr[1 : period + 1])
+    for i in range(period + 1, n):
+        atr[i] = (atr[i - 1] * (period - 1) + tr[i]) / period
+    return atr
+
+
+# ---------------------------------------------------------------------------
 # Multi-timeframe helper
 # ---------------------------------------------------------------------------
 
