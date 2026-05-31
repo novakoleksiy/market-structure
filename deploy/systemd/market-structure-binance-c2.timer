@@ -1,0 +1,12 @@
+[Unit]
+Description=market-structure binance C2 (30min) signal job
+# C2 low TF = 30min. Binance closes 30m candles on UTC :00/:30; fire 30s after.
+
+[Timer]
+OnCalendar=*-*-* *:00/30:30 UTC
+AccuracySec=30s
+Persistent=true
+Unit=market-structure@binance-c2.service
+
+[Install]
+WantedBy=timers.target
