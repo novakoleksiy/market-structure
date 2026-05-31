@@ -1,13 +1,18 @@
 # Deployment — systemd timers
 
-Scheduled signal generation runs as a set of systemd timers, one per
+Scheduled signal generation runs as 8 concrete systemd units, one per
 `(source, cluster)` pair. Each timer fires shortly **after** the relevant
-candle closes, then triggers a templated oneshot service that runs the
-`run-source-cluster` CLI (persist new signals + Telegram alert).
+candle closes and triggers a oneshot service that runs the `run-source-cluster`
+CLI (persist new signals + Telegram alert) behind a shared `flock`.
+
+`install-systemd.sh` is the **single source of truth**: it embeds the schedule
+table, removes any existing `market-structure-*` units, regenerates all 8
+service+timer pairs, and enables them. It is idempotent — rerun it to refresh
+the schedule or to provision a fresh LXC.
 
 ## Why candle-aligned timers
 
-The job for a cluster is only meaningful once its lowest timeframe's candle has
+A cluster's job is only meaningful once its lowest timeframe's candle has
 closed. The lowest TF per cluster (`clusters.py`) sets the cadence:
 
 | Cluster | low TF | binance close (UTC) | OANDA close |
@@ -20,45 +25,50 @@ closed. The lowest TF per cluster (`clusters.py`) sets the cadence:
 **Alignment facts** (from `binance_data.py` / `tradfi_data.py`):
 
 - Binance: every timeframe is UTC-aligned.
-- OANDA: M5/M30 are UTC-aligned, but H4 and D inherit OANDA's
-  `dailyAlignment` default of **17:00 America/New_York** because
-  `tradfi_data.py` sends no `dailyAlignment`/`alignmentTimezone`. That is why
-  OANDA C3/C4 use a `America/New_York` `OnCalendar` (DST-safe) rather than UTC.
+- OANDA: M5/M30 are UTC-aligned, but H4 and D inherit OANDA's `dailyAlignment`
+  default of **17:00 America/New_York** because `tradfi_data.py` sends no
+  `dailyAlignment`/`alignmentTimezone`. That is why OANDA C3/C4 use a
+  `America/New_York` `OnCalendar` (DST-safe) rather than UTC.
 
-Timers fire with a grace offset after close — 30s intraday, 2min daily — so the
-exchange/broker has settled the just-closed bar before we fetch it. All timers
-set `Persistent=true` (catch up missed runs after downtime) and
-`AccuracySec=30s`.
+Grace offset after close: 30s intraday, 2min daily, so the exchange/broker has
+settled the just-closed bar. All timers set `Persistent=true` (catch up missed
+runs after downtime) and a tight `AccuracySec=30s` (fire right at the boundary).
 
-> `OnCalendar` timezone suffixes (e.g. `… America/New_York`) require
-> **systemd ≥ 252** (Debian 12 / Ubuntu 24.04 ship this). On older systemd,
-> replace OANDA C3/C4 with UTC equivalents — but note these are **not**
-> DST-safe and must be flipped twice a year:
+This replaces the original `OnBootSec=`+`OnUnitActiveSec=` schedule, which fired
+on a boot-relative interval unrelated to candle boundaries — leaving C4 (daily)
+running on the previous day's bar.
+
+> `OnCalendar` timezone suffixes (`… America/New_York`) require
+> **systemd ≥ 252** (Debian 12 / Ubuntu 24.04 ship this). Check with
+> `systemctl --version`. On older systemd, edit the two OANDA rows in the
+> `SCHEDULE` table to UTC — but those are **not** DST-safe and must be flipped
+> twice a year:
 > EDT: C3 `*-*-* 01,05,09,13,17,21:00:30 UTC`, C4 `*-*-* 21:02:00 UTC`;
 > EST: C3 `*-*-* 02,06,10,14,18,22:00:30 UTC`, C4 `*-*-* 22:02:00 UTC`.
 
-## Components
-
-- `systemd/market-structure@.service` — oneshot template; `%i` is
-  `<source>-<cluster>` (e.g. `oanda-c1`). Runs as the `market-structure` user,
-  `WorkingDirectory=/opt/market-structure`, `EnvironmentFile=/etc/market-structure.env`.
-- `systemd/run-market-structure-job.sh` — parses `%i`, takes a shared
-  `flock` (the sqlite db + parquet cache are not concurrency-safe), then runs:
-  `uv run main.py run-source-cluster --source <source> --cluster <C#> --db-path /var/lib/market-structure/signals.sqlite3`
-  (`latest_only=False` and Telegram notify are applied inside the CLI).
-- `systemd/market-structure-{binance,oanda}-c{1,2,3,4}.timer` — the 8 timers.
-- `market-structure.env.example` — template for `/etc/market-structure.env`.
-- `install-systemd.sh` — creates the service user + state dir, installs units,
-  enables and starts all timers.
-
-## Install
+## Install / refresh
 
 ```bash
-# Repo checked out at /opt/market-structure, uv installed system-wide.
+# Prereqs: app at /opt/market-structure, uv at /usr/local/bin/uv,
+# /etc/market-structure.env populated with secrets.
 sudo deploy/install-systemd.sh
-# Then edit secrets:
-sudoedit /etc/market-structure.env
+
+# Fresh LXC: also create the service user, state dir, and env file:
+sudo deploy/install-systemd.sh --bootstrap
+sudoedit /etc/market-structure.env   # fill in real secrets, then rerun without --bootstrap
 ```
+
+The script generates, for each `(source, cluster)`:
+
+- `/etc/systemd/system/market-structure-<source>-<cluster>.service` — oneshot,
+  `User=market-structure`, `WorkingDirectory=/opt/market-structure`,
+  `EnvironmentFile=/etc/market-structure.env`,
+  `ExecStart=/usr/bin/flock -w 900 /var/lib/market-structure/job.lock /usr/local/bin/uv run main.py run-source-cluster --source <s> --cluster <C#> --db-path /var/lib/market-structure/signals.sqlite3`.
+- `/etc/systemd/system/market-structure-<source>-<cluster>.timer` — the
+  `OnCalendar` schedule above.
+
+To change schedules, sources, or clusters, edit the `SCHEDULE` table at the top
+of `install-systemd.sh` and rerun it.
 
 ## Verify
 
@@ -78,6 +88,11 @@ systemd-analyze calendar '*-*-* 17:02:00 America/New_York' --iterations=3
 # Run one job by hand:
 sudo systemctl start market-structure-oanda-c1.service
 ```
+
+Also ground-truth OANDA alignment before fully trusting the NY values: pull one
+OANDA H4 candle and confirm closes land on 01/05/09/13/17/21 UTC under EDT. If
+OANDA returns UTC-aligned H4/D instead, switch the OANDA C3/C4 rows in the
+`SCHEDULE` table to the binance UTC expressions and rerun.
 
 ## Run a job manually (without systemd)
 
