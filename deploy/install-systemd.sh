@@ -26,6 +26,7 @@ HOME_DIR="${MARKET_STRUCTURE_HOME:-/opt/market-structure}"
 STATE_DIR="${MARKET_STRUCTURE_STATE:-/var/lib/market-structure}"
 DB_PATH="${MARKET_STRUCTURE_DB:-${STATE_DIR}/signals.sqlite3}"
 LOCK_FILE="${MARKET_STRUCTURE_LOCK:-${STATE_DIR}/job.lock}"
+CACHE_DIR="${STATE_DIR}/uv-cache"
 ENV_FILE="${MARKET_STRUCTURE_ENV:-/etc/market-structure.env}"
 UV_BIN="${UV_BIN:-/usr/local/bin/uv}"
 SERVICE_USER="market-structure"
@@ -55,11 +56,17 @@ if [[ "${1:-}" == "--bootstrap" ]]; then
     useradd --system --home-dir "${STATE_DIR}" --shell /usr/sbin/nologin "${SERVICE_USER}"
   fi
   install -d -o "${SERVICE_USER}" -g "${SERVICE_USER}" -m 0750 "${STATE_DIR}"
-  if [[ ! -f ${ENV_FILE} && -f ${HOME_DIR}/deploy/market-structure.env.example ]]; then
+  install -d -o "${SERVICE_USER}" -g "${SERVICE_USER}" -m 0750 "${CACHE_DIR}"
+  if [[ ! -f ${ENV_FILE} && -f ${HOME_DIR}/.env.example ]]; then
     install -o root -g "${SERVICE_USER}" -m 0640 \
-      "${HOME_DIR}/deploy/market-structure.env.example" "${ENV_FILE}"
-    echo "wrote ${ENV_FILE} from example — edit it with real secrets before the first run."
+      "${HOME_DIR}/.env.example" "${ENV_FILE}"
+    echo "wrote ${ENV_FILE} from .env.example — edit it with real secrets before the first run."
   fi
+  # The service user must own the checkout so `uv run` can create/sync .venv there.
+  chown -R "${SERVICE_USER}:${SERVICE_USER}" "${HOME_DIR}"
+  # Pre-build the venv as the service user so the first timer run isn't a cold sync.
+  sudo -u "${SERVICE_USER}" env HOME="${STATE_DIR}" UV_CACHE_DIR="${CACHE_DIR}" \
+    "${UV_BIN}" --directory "${HOME_DIR}" sync
 fi
 
 # --- clean slate: drop every existing market-structure unit ----------------
@@ -96,6 +103,8 @@ User=${SERVICE_USER}
 Group=${SERVICE_USER}
 WorkingDirectory=${HOME_DIR}
 EnvironmentFile=${ENV_FILE}
+Environment=HOME=${STATE_DIR}
+Environment=UV_CACHE_DIR=${CACHE_DIR}
 ExecStart=/usr/bin/flock -w 900 ${LOCK_FILE} ${UV_BIN} run main.py run-source-cluster --source ${src} --cluster ${CL_UP} --db-path ${DB_PATH}
 EOF
 
