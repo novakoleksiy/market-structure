@@ -69,6 +69,24 @@ def test_detect_pivots_length_2():
     assert ph[5] == 10.0
 
 
+def test_detect_pivots_tied_high_uses_latest_tie():
+    highs = np.array([159.498, 159.498, 159.498, 159.480, 159.488])
+    lows = np.ones(len(highs))
+    ph, _ = detect_pivots(highs, lows, pivot_length=2)
+
+    assert ph[4] == 159.498
+    assert np.isnan(ph[:4]).all()
+
+
+def test_detect_pivots_tied_low_uses_latest_tie():
+    lows = np.array([159.480, 159.480, 159.480, 159.498, 159.488])
+    highs = np.full(len(lows), 160.0)
+    _, pl = detect_pivots(highs, lows, pivot_length=2)
+
+    assert pl[4] == 159.480
+    assert np.isnan(pl[:4]).all()
+
+
 # ---------------------------------------------------------------------------
 # update_market_structure
 # ---------------------------------------------------------------------------
@@ -103,28 +121,24 @@ def test_ums_uptrend_break_support_flips_down():
     st = MarketStructureState(trend=1, support=95.0, last_ph=110.0)
     update_market_structure(st, 90.0, NAN, NAN)
     assert st.trend == -1
-    assert np.isnan(st.resistance)
+    assert st.resistance == 110.0
     assert np.isnan(st.support)
 
 
-def test_ums_new_downtrend_waits_for_fresh_swing_high():
+def test_ums_new_downtrend_seeds_prior_confirmed_high():
     st = MarketStructureState(
         trend=1,
         support=159.441,
-        last_ph=159.432,
+        last_ph=159.498,
         last_pl=159.441,
     )
     update_market_structure(st, 159.426, NAN, NAN)
     assert st.trend == -1
-    assert np.isnan(st.resistance)
+    assert st.resistance == 159.498
 
     update_market_structure(st, 159.453, NAN, NAN)
     assert st.trend == -1
-    assert np.isnan(st.resistance)
-
-    update_market_structure(st, 159.468, 159.500, NAN)
-    assert st.trend == -1
-    assert st.resistance == 159.500
+    assert st.resistance == 159.498
 
 
 def test_ums_uptrend_higher_low_updates_support():
@@ -149,11 +163,11 @@ def test_ums_downtrend_break_resistance_flips_up():
     st = MarketStructureState(trend=-1, resistance=110.0, last_pl=85.0)
     update_market_structure(st, 115.0, NAN, NAN)
     assert st.trend == 1
-    assert np.isnan(st.support)
+    assert st.support == 85.0
     assert np.isnan(st.resistance)
 
 
-def test_ums_new_uptrend_waits_for_fresh_swing_low():
+def test_ums_new_uptrend_seeds_prior_confirmed_low():
     st = MarketStructureState(
         trend=-1,
         resistance=100.0,
@@ -162,15 +176,11 @@ def test_ums_new_uptrend_waits_for_fresh_swing_low():
     )
     update_market_structure(st, 101.0, NAN, NAN)
     assert st.trend == 1
-    assert np.isnan(st.support)
+    assert st.support == 90.0
 
-    update_market_structure(st, 89.5, NAN, NAN)
+    update_market_structure(st, 90.5, NAN, NAN)
     assert st.trend == 1
-    assert np.isnan(st.support)
-
-    update_market_structure(st, 99.0, NAN, 88.0)
-    assert st.trend == 1
-    assert st.support == 88.0
+    assert st.support == 90.0
 
 
 def test_ums_downtrend_lower_high_updates_resistance():
@@ -201,6 +211,26 @@ def test_ums_both_pivots_downtrend_prefers_pl():
     st = MarketStructureState(trend=-1, resistance=110.0)
     update_market_structure(st, 100.0, 108.0, 88.0)
     assert st.last_pl == 88.0
+
+
+def test_ums_usdjpy_tied_high_blocks_false_long_reversal():
+    st = MarketStructureState(
+        trend=1,
+        support=159.441,
+        resistance=NAN,
+        last_ph=159.432,
+        last_pl=159.441,
+    )
+
+    update_market_structure(st, 159.488, 159.498, NAN)
+    assert st.last_ph == 159.498
+
+    update_market_structure(st, 159.426, NAN, NAN)
+    assert st.trend == -1
+    assert st.resistance == 159.498
+
+    update_market_structure(st, 159.453, NAN, NAN)
+    assert st.trend == -1
 
 
 # ---------------------------------------------------------------------------
