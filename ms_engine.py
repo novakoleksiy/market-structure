@@ -79,14 +79,14 @@ def update_market_structure(
     if st.trend == 1:
         if close < st.support:
             st.trend = -1
-            st.resistance = st.last_ph
+            st.resistance = float("nan")
             st.support = float("nan")
         elif signal_pl and (np.isnan(st.support) or pivot_low > st.support):
             st.support = pivot_low
     elif st.trend == -1:
         if close > st.resistance:
             st.trend = 1
-            st.support = st.last_pl
+            st.support = float("nan")
             st.resistance = float("nan")
         elif signal_ph and (np.isnan(st.resistance) or pivot_high < st.resistance):
             st.resistance = pivot_high
