@@ -31,14 +31,18 @@ def detect_pivots(
     ph = np.full(n, np.nan)
     pl = np.full(n, np.nan)
 
-    # Only consider candidates with L bars on each side.
+    # Pine's ta.pivothigh/ta.pivotlow resolves ties to the latest tied bar:
+    # equality is allowed on the left, but the candidate must strictly beat
+    # the right side.
     for i in range(L, n - L):
-        window_h = highs[i - L : i + L + 1]
-        if highs[i] == window_h.max() and np.sum(window_h == highs[i]) == 1:
+        left_h = highs[i - L : i]
+        right_h = highs[i + 1 : i + L + 1]
+        if np.all(highs[i] >= left_h) and np.all(highs[i] > right_h):
             ph[i + L] = highs[i]
 
-        window_l = lows[i - L : i + L + 1]
-        if lows[i] == window_l.min() and np.sum(window_l == lows[i]) == 1:
+        left_l = lows[i - L : i]
+        right_l = lows[i + 1 : i + L + 1]
+        if np.all(lows[i] <= left_l) and np.all(lows[i] < right_l):
             pl[i + L] = lows[i]
 
     return ph, pl
@@ -79,14 +83,14 @@ def update_market_structure(
     if st.trend == 1:
         if close < st.support:
             st.trend = -1
-            st.resistance = float("nan")
+            st.resistance = st.last_ph
             st.support = float("nan")
         elif signal_pl and (np.isnan(st.support) or pivot_low > st.support):
             st.support = pivot_low
     elif st.trend == -1:
         if close > st.resistance:
             st.trend = 1
-            st.support = float("nan")
+            st.support = st.last_pl
             st.resistance = float("nan")
         elif signal_ph and (np.isnan(st.resistance) or pivot_high < st.resistance):
             st.resistance = pivot_high
