@@ -9,7 +9,7 @@ import pandas as pd
 import binance_data
 import tradfi_data
 from clusters import ALL_CLUSTERS, ALL_TIMEFRAMES, get_cluster
-from ms_engine import compute_cluster_signals, get_mtf_trend
+from ms_engine import compute_cluster_signals, compute_market_structure, get_mtf_trend
 from universe import UNIVERSE, Symbol
 
 PIVOT_LENGTH = 2
@@ -61,7 +61,16 @@ def _compute_cluster_trends(
     pivot_length: int,
 ) -> tuple[pd.Series, pd.Series, pd.Series]:
     """Compute low, medium, and high timeframe trends on the low timeframe index."""
-    trend_l = get_mtf_trend(df_l, cluster["low"], pivot_length, higher_tf_df=df_l)
+    trend_l = pd.Series(
+        compute_market_structure(
+            df_l["high"].values,
+            df_l["low"].values,
+            df_l["close"].values,
+            pivot_length,
+        ),
+        index=df_l.index,
+        name="trend",
+    )
     trend_m = get_mtf_trend(df_l, cluster["med"], pivot_length, higher_tf_df=df_m)
     trend_h = get_mtf_trend(df_l, cluster["high"], pivot_length, higher_tf_df=df_h)
     return trend_l, trend_m, trend_h

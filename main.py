@@ -81,7 +81,87 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-cache", action="store_true", help="Disable parquet market-data cache"
     )
 
+    bt = subparsers.add_parser(
+        "backtest",
+        help="Backtest cluster signals with ATR-based SL/TP across the universe",
+    )
+    bt.add_argument(
+        "--clusters",
+        default=",".join(sorted(ALL_CLUSTERS)),
+        help="Comma-separated clusters to run (default: all)",
+    )
+    bt.add_argument("--bars", type=int, default=3000)
+    bt.add_argument(
+        "--source",
+        choices=["binance", "oanda"],
+        help="Restrict the universe to one data source",
+    )
+    bt.add_argument("--atr-period", type=int, default=14)
+    bt.add_argument("--sl-mult", type=float, default=1.0)
+    bt.add_argument("--tp-mult", type=float, default=2.0)
+    bt.add_argument(
+        "--no-opposite-exit",
+        action="store_true",
+        help="Do not exit early on an opposite-direction signal",
+    )
+    bt.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Animated lightweight-charts playback (single symbol/cluster)",
+    )
+    bt.add_argument("--symbol", default="BTCUSDT", help="Symbol for --interactive")
+    bt.add_argument("--cluster", default="C1", help="Cluster for --interactive")
+    bt.add_argument("--speed", type=float, default=20.0, help="Bars/sec for --interactive")
+
     return parser
+
+
+def _parse_clusters(raw: str) -> list[str]:
+    """Validate and return cluster names from a comma-separated string."""
+    names = [c.strip().upper() for c in raw.split(",") if c.strip()]
+    unknown = [c for c in names if c not in ALL_CLUSTERS]
+    if unknown:
+        raise SystemExit(
+            f"Unknown cluster(s): {unknown}. Choose from {sorted(ALL_CLUSTERS)}"
+        )
+    return names
+
+
+def run_backtest_command(args: argparse.Namespace) -> int:
+    """Dispatch the `backtest` subcommand (headless report or interactive GUI)."""
+    if args.interactive:
+        import backtest_viz
+
+        backtest_viz.play_backtest(
+            symbol=args.symbol,
+            cluster_name=args.cluster.upper(),
+            n_bars=args.bars,
+            speed=args.speed,
+            atr_period=args.atr_period,
+            sl_mult=args.sl_mult,
+            tp_mult=args.tp_mult,
+            opposite_exit=not args.no_opposite_exit,
+        )
+        return 0
+
+    import backtest
+    from universe import build_universe
+
+    universe = None
+    if args.source:
+        universe = [s for s in build_universe() if s.source == args.source]
+
+    result = backtest.run_backtest(
+        universe=universe,
+        clusters=_parse_clusters(args.clusters),
+        n_bars=args.bars,
+        atr_period=args.atr_period,
+        sl_mult=args.sl_mult,
+        tp_mult=args.tp_mult,
+        opposite_exit=not args.no_opposite_exit,
+    )
+    backtest.print_report(result)
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -104,6 +184,9 @@ def main(argv: list[str] | None = None) -> int:
             )
         print(f"\n{len(signals)} new signals persisted")
         return 0
+
+    if args.command == "backtest":
+        return run_backtest_command(args)
 
     signals = latest_signals_per_combo(generate_signals(n_bars=3000))
     for sig in signals:
