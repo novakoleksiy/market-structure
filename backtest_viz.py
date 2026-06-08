@@ -79,6 +79,10 @@ def _feed_frame(df: pd.DataFrame, trend: np.ndarray) -> pd.DataFrame:
     out = df.reset_index()
     out = out.rename(columns={out.columns[0]: "time"})
     out = out[["time", "open", "high", "low", "close"]].copy()
+    # lightweight-charts' bulk set() does ``time.astype('int64') // 1e9`` assuming
+    # nanosecond resolution; a datetime64[us] index would collapse many bars onto
+    # the same second, so normalize to ns here.
+    out["time"] = out["time"].dt.as_unit("ns")
     out["color"] = [_TREND_FILL[int(t)] for t in trend]
     out["borderColor"] = [_TREND_BORDER[int(t)] for t in trend]
     out["wickColor"] = [_TREND_BORDER[int(t)] for t in trend]
@@ -184,11 +188,16 @@ def play_backtest(
     sl_mult: float = 1.0,
     tp_mult: float = 2.0,
     opposite_exit: bool = True,
+    final: bool = False,
 ) -> None:
     """Animate the backtest for one symbol + cluster across all three timeframes.
 
     ``speed`` is bars per second (low TF); ``warmup`` is how many low-TF bars are
     shown before streaming begins. Pause/resume with the topbar button or space.
+
+    With ``final=True`` the whole window is rendered at once (every candle, pivot,
+    and trade marker) and the streaming loop is skipped — a static view of the
+    completed backtest instead of the candle-by-candle playback.
     """
     import asyncio
 
@@ -285,13 +294,15 @@ def play_backtest(
             func, args = parse_event_message(chart.win, msg)
             asyncio.run(func(*args)) if asyncio.iscoroutinefunction(func) else func(*args)
 
-    # --- Warmup -----------------------------------------------------------
-    warmup = max(1, min(warmup, n_low))
-    cutoff = low_view.times[warmup - 1]
-    low_cf.set_initial(warmup)
+    # --- Initial reveal (the warmup window, or all bars in final mode) ----
+    # Seeds candles/pivots in bulk and replays trade markers in chronological
+    # order so SL/TP lines settle to the correct state (only open trades left).
+    reveal = n_low if final else max(1, min(warmup, n_low))
+    cutoff = low_view.times[reveal - 1]
+    low_cf.set_initial(reveal)
     med_cf.set_initial(_count_until(med_view.times, cutoff))
     high_cf.set_initial(_count_until(high_view.times, cutoff))
-    for i in range(warmup):
+    for i in range(reveal):
         for t in exits.get(low_view.times[i], []):
             add_exit(t)
         for t in entries.get(low_view.times[i], []):
@@ -299,11 +310,15 @@ def play_backtest(
     for cf in (low_cf, med_cf, high_cf):
         cf.refresh()
 
+    if final:
+        chart.show(block=True)
+        return
+
     chart.show(block=False)
 
     # --- Stream the low timeframe; higher TFs follow its clock ------------
     delay = 1.0 / speed if speed > 0 else 0.0
-    i = warmup
+    i = reveal
     while i < n_low and chart.is_alive:
         if state["paused"]:
             pump_events()

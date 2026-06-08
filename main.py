@@ -112,6 +112,11 @@ def build_parser() -> argparse.ArgumentParser:
     bt.add_argument("--symbol", default="BTCUSDT", help="Symbol for --interactive")
     bt.add_argument("--cluster", default="C1", help="Cluster for --interactive")
     bt.add_argument("--speed", type=float, default=20.0, help="Bars/sec for --interactive")
+    bt.add_argument(
+        "--final",
+        action="store_true",
+        help="Render the completed backtest at once instead of candle-by-candle playback",
+    )
 
     return parser
 
@@ -141,6 +146,7 @@ def run_backtest_command(args: argparse.Namespace) -> int:
             sl_mult=args.sl_mult,
             tp_mult=args.tp_mult,
             opposite_exit=not args.no_opposite_exit,
+            final=args.final,
         )
         return 0
 
