@@ -177,15 +177,22 @@ def resample_ohlc(df: pd.DataFrame, rule: str) -> pd.DataFrame:
     return result
 
 
+def _timeframe_offset(rule: str) -> pd.DateOffset:
+    """Return the elapsed time represented by one candle of *rule*."""
+    if rule.endswith("W"):
+        count = int(rule[:-1] or "1")
+        return pd.DateOffset(weeks=count)
+    return pd.tseries.frequencies.to_offset(rule)
+
+
 def get_mtf_trend(
     df: pd.DataFrame,
     rule: str,
     pivot_length: int = 2,
     higher_tf_df: pd.DataFrame | None = None,
 ) -> pd.Series:
-    """Compute market-structure trend on a higher timeframe and
-    forward-fill it back onto the base index (mimics ``request.security``
-    with ``gaps_off, lookahead_off``).
+    """Compute market-structure trend on a higher timeframe and forward-fill
+    it back onto the base index once each higher-timeframe candle has closed.
 
     If *higher_tf_df* is provided it is used directly (real exchange
     candles); otherwise the base *df* is resampled to *rule*.
@@ -197,8 +204,13 @@ def get_mtf_trend(
         htf["close"].values,
         pivot_length,
     )
-    trend_sr = pd.Series(trend_vals, index=htf.index, name="trend")
-    trend_sr = trend_sr.shift(1)  # available only after HTF bar closes (lookahead_off)
+    # Candle indexes are candle-open timestamps.  A trend value can only be
+    # consumed after that candle closes, even if the next HTF row is absent.
+    trend_sr = pd.Series(
+        trend_vals,
+        index=htf.index + _timeframe_offset(rule),
+        name="trend",
+    )
     trend_sr = trend_sr.reindex(df.index, method="ffill").fillna(0).astype(int)
     return trend_sr
 

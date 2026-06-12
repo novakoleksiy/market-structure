@@ -365,9 +365,9 @@ def test_mtf_trend_shift_applies_to_low_tf():
     assert trend.iloc[3] == 1
 
 
-def test_get_mtf_trend_with_higher_tf_df_delays_by_one_bar():
-    """Passing higher_tf_df explicitly (as main.py does) must still delay."""
-    base_rows = [(100, 105, 95, 102)] * 12
+def test_get_mtf_trend_with_higher_tf_df_uses_candle_close_time():
+    """Passing higher_tf_df explicitly must delay until the HTF candle close."""
+    base_rows = [(100, 105, 95, 102)] * 13
     df = _ohlc_df(base_rows, freq="5min")
 
     htf_rows = [(100, 105, 95, 102)] * 2
@@ -381,6 +381,27 @@ def test_get_mtf_trend_with_higher_tf_df_delays_by_one_bar():
     # Next 6 base bars (HTF bar 1 period): HTF bar 0 trend (0) forward-filled
     assert all(trend.iloc[6:12] == 0), (
         f"HTF bar 1 period should show bar 0's trend (0), got {trend.iloc[6:12].values}"
+    )
+    # At 01:00, HTF bar 1 has closed, so its trend is available.
+    assert trend.iloc[12] == 1
+
+
+def test_mtf_trend_uses_closed_htf_bar_when_next_htf_row_is_missing():
+    """A closed HTF trend must become available even without the next HTF row."""
+    base_rows = [(100, 105, 95, 102)] * 18
+    df = _ohlc_df(base_rows, freq="5min")
+
+    # Only two 30min bars are present.  The second bar opens at 00:30 and
+    # closes at 01:00, so its trend should be visible on 01:00+ base bars.
+    htf_rows = [(100, 105, 95, 102)] * 2
+    htf = _ohlc_df(htf_rows, freq="30min")
+
+    with patch("ms_engine.compute_market_structure", return_value=np.array([0, 1])):
+        trend = get_mtf_trend(df, "30min", pivot_length=2, higher_tf_df=htf)
+
+    assert all(trend.iloc[:12] == 0)
+    assert all(trend.iloc[12:] == 1), (
+        f"Closed HTF bar 1 should be visible from 01:00 onward, got {trend.iloc[12:].values}"
     )
 
 
@@ -693,6 +714,30 @@ def test_cluster_long_signal_full_sequence():
     t_l = np.array([1, 1, 1, 1, -1, -1, 1, 1])
     longs, shorts = compute_cluster_signals(t_h, t_m, t_l)
     assert longs[6]
+    assert not shorts.any()
+
+
+def test_cluster_long_strategy_sequence_after_htf_shift():
+    """Long setup: HTF confirms up, MTF dips/recovers, then LTF recovers."""
+    t_h = np.array([-1, -1, 1, 1, 1, 1, 1, 1, 1])
+    t_m = np.array([1, 1, 1, -1, -1, 1, 1, 1, 1])
+    t_l = np.array([1, 1, 1, 1, 1, 1, -1, -1, 1])
+
+    longs, shorts = compute_cluster_signals(t_h, t_m, t_l)
+
+    assert np.where(longs)[0].tolist() == [8]
+    assert not shorts.any()
+
+
+def test_cluster_long_strategy_requires_htf_to_remain_up():
+    """No long if HTF stops being up before the LTF recovery completes."""
+    t_h = np.array([-1, -1, 1, 1, 1, 1, -1, -1, -1])
+    t_m = np.array([1, 1, 1, -1, -1, 1, 1, 1, 1])
+    t_l = np.array([1, 1, 1, 1, 1, 1, -1, -1, 1])
+
+    longs, shorts = compute_cluster_signals(t_h, t_m, t_l)
+
+    assert not longs.any()
     assert not shorts.any()
 
 
